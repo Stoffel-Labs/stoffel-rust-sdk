@@ -1,0 +1,13 @@
+[submodule "external/stoffel-lang"]
+	path = external/stoffel-lang
+	url = https://github.com/Stoffel-Labs/Stoffel-Lang.git
+[submodule "external/stoffel-vm"]
+	path = external/stoffel-vm
+	url = https://github.com/Stoffel-Labs/StoffelVM.git
+	branch = runner
+[submodule "external/mpc-protocols"]
+	path = external/mpc-protocols
+	url = https://github.com/Stoffel-Labs/mpc-protocols.git
+[submodule "external/stoffel-networking"]
+	path = external/stoffel-networking
+	url = https://github.com/Stoffel-Labs/stoffel-networking.git
