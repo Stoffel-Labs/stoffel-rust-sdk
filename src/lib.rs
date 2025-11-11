@@ -1,9 +1,10 @@
 //! # Stoffel Rust SDK
 //!
-//! A friendly, high-level Rust SDK for the Stoffel ecosystem, providing easy access to:
+//! A production-ready Rust SDK for the Stoffel ecosystem, providing:
 //! - **Stoffel-Lang**: Compile Stoffel programs to bytecode
 //! - **StoffelVM**: Execute bytecode in the Stoffel virtual machine
-//! - **MPC Infrastructure**: Multi-party computation runtime and participants
+//! - **MPC Infrastructure**: Complete multi-party computation with automatic networking
+//! - **Network Helpers**: Production-ready QUIC networking infrastructure
 //!
 //! ## Architecture
 //!
@@ -12,21 +13,32 @@
 //! - **[`Stoffel`]**: The main gateway for all SDK functionality
 //! - **[`StoffelRuntime`]**: A compiled program with MPC infrastructure configuration
 //! - **[`Program`]**: Pure bytecode that can be executed locally or in an MPC network
+//! - **`network_helpers`**: Production networking infrastructure (QUIC listeners, connections, handlers)
 //!
-//! ## MPC Protocol Configuration
+//! ## MPC Protocol and Secret Sharing Configuration
 //!
-//! The SDK uses the **HoneyBadger MPC protocol** by default. This is a robust,
-//! Byzantine fault-tolerant protocol suitable for most use cases. Developers don't
-//! need to worry about protocol details - the SDK handles it automatically.
+//! The SDK uses sensible defaults that work together:
+//! - **Protocol**: HoneyBadger (Byzantine fault-tolerant, asynchronous)
+//! - **Secret Sharing**: RobustShare (error correction, required for HoneyBadger)
 //!
-//! For advanced users, the protocol can be explicitly selected using `.protocol()`:
+//! These defaults provide robust security suitable for most use cases. Developers don't
+//! need to worry about configuration details - the SDK handles it automatically.
+//!
+//! For advanced users, both the protocol and share type can be explicitly configured:
 //!
 //! ```rust,no_run
 //! # use stoffel_rust_sdk::prelude::*;
 //! # fn main() -> Result<()> {
+//! // Default: HoneyBadger with RobustShare (automatic)
 //! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
 //!     .parties(5)
-//!     .protocol(ProtocolType::HoneyBadger)  // Explicit protocol selection
+//!     .build()?;
+//!
+//! // Advanced: Explicit configuration for semi-honest settings
+//! let runtime2 = Stoffel::compile("main main() -> int64:\n  return 42")?
+//!     .parties(5)
+//!     .protocol(ProtocolType::HoneyBadger)  // Explicit protocol
+//!     .share_type(ShareType::NonRobust)     // Faster, but requires honest parties
 //!     .build()?;
 //! # Ok(())
 //! # }
@@ -51,28 +63,64 @@
 //! # }
 //! ```
 //!
-//! ### MPC Network Setup
+//! ### Production MPC with Automatic Networking
+//!
+//! ```rust,no_run
+//! use stoffel_rust_sdk::prelude::*;
+//! use ark_bls12_381::Fr;
+//!
+//! # async fn example() -> std::result::Result<(), Box<dyn std::error::Error>> {
+//! // Step 1: Compile Stoffel program
+//! let runtime = Stoffel::compile("main main(a: secret int64, b: secret int64) -> secret int64:\n  return a * b")?
+//!     .parties(5)        // 5-party MPC network
+//!     .threshold(1)      // Tolerates 1 Byzantine fault
+//!     .instance_id(42)   // Computation ID
+//!     .build()?;
+//!
+//! // Step 2: Setup complete network infrastructure (ONE FUNCTION CALL!)
+//! let (servers, receivers) = setup_honeybadger_quic_network::<Fr>(
+//!     5,      // n_parties
+//!     1,      // threshold
+//!     3,      // n_triples for preprocessing
+//!     8,      // n_random_shares
+//!     42,     // instance_id
+//!     19200,  // base_port
+//!     HoneyBadgerQuicConfig::default(),
+//! ).await?;
+//!
+//! // Step 3: Start and connect
+//! for server in &mut servers {
+//!     server.start().await?;
+//! }
+//! for server in &servers {
+//!     server.connect_to_peers().await?;
+//! }
+//!
+//! // Step 4: Run MPC protocol!
+//! // (preprocessing, input sharing, computation, output reconstruction)
+//! // See examples/quick_start_local_network_real.rs for complete implementation
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Simple API Usage (without network execution)
 //!
 //! ```rust,no_run
 //! use stoffel_rust_sdk::prelude::*;
 //!
 //! # fn main() -> Result<()> {
-//! // Compile with MPC configuration (uses HoneyBadger protocol by default)
+//! // Compile with MPC configuration
 //! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-//!     .parties(5)        // 5-party MPC network
-//!     .threshold(1)      // Tolerates 1 faulty party (Byzantine fault tolerant)
-//!     .instance_id(42)   // Computation ID
+//!     .parties(5)
+//!     .threshold(1)
 //!     .build()?;
 //!
-//! // Protocol is automatically configured (HoneyBadger)
-//! println!("Protocol: {:?}", runtime.protocol_type());
-//!
-//! // Test locally
-//! let result = runtime.program().execute_local()?;
-//!
-//! // Create MPC participants (inherit protocol from runtime)
+//! // Create MPC participants (automatic network manager creation)
 //! let client = runtime.client(100).with_inputs(vec![10, 20]).build()?;
-//! let node = runtime.node(0).with_preprocessing(10, 25).build()?;
+//! let server = runtime.server(0).with_preprocessing(10, 25).build()?;
+//! let node = runtime.node(0).with_inputs(vec![10, 20]).build()?;
+//!
+//! // For actual execution, use network_helpers (see above)
 //! # Ok(())
 //! # }
 //! ```
@@ -92,8 +140,7 @@
 //!     .build()?;
 //!
 //! // With optimization
-//! let runtime = Stoffel::builder()
-//!     .source("main main() -> int64:\n  return 42")
+//! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
 //!     .optimize(true)
 //!     .parties(5)
 //!     .threshold(1)
@@ -139,9 +186,9 @@
 //! let client1 = runtime.client(100).with_inputs(vec![10, 20]).build()?;
 //! let client2 = runtime.client(101).with_inputs(vec![30, 40]).build()?;
 //!
-//! // Create nodes (perform secure computation using HoneyBadger)
-//! let node1 = runtime.node(0).with_preprocessing(10, 25).build()?;
-//! let node2 = runtime.node(1).with_preprocessing(10, 25).build()?;
+//! // Create servers (perform secure computation using HoneyBadger)
+//! let server1 = runtime.server(0).with_preprocessing(10, 25).build()?;
+//! let server2 = runtime.server(1).with_preprocessing(10, 25).build()?;
 //! # Ok(())
 //! # }
 //! ```
@@ -167,9 +214,29 @@
 pub mod compiler;
 pub mod error;
 pub mod client;
+pub mod server;
+pub mod session;
 pub mod vm;
 pub mod program;
 pub mod network_config;
+pub mod secret_sharing;
+
+/// Advanced APIs for power users (low-level access)
+///
+/// This module exposes raw VM types, MPC protocol internals, and
+/// network management for custom implementations.
+///
+/// Most users should use the high-level `Stoffel` builder in the root module instead.
+pub mod advanced;
+
+/// Network infrastructure helpers for production MPC deployments
+///
+/// Re-exports HoneyBadger QUIC network setup utilities from stoffel-vm.
+/// These provide automatic setup of QUIC listeners, connections, and message handlers.
+#[cfg(feature = "mpc-local")]
+pub mod network_helpers;
+
+/// Convenient re-exports for common usage
 pub mod prelude;
 
 #[cfg(feature = "mpc-local")]
@@ -179,6 +246,49 @@ pub mod mpc_local;
 pub mod stoffel_mpc;
 
 pub use error::{Error, Result};
+
+// Re-export key types from mpc-protocols for advanced users
+// These types are used internally by the SDK and exposed for advanced usage
+#[cfg(feature = "mpc-local")]
+pub mod mpc_types {
+    //! Re-exported types from the mpc-protocols crate
+    //!
+    //! These are the underlying MPC types used by the Stoffel SDK.
+    //! Most users don't need to interact with these directly.
+
+    // HoneyBadger protocol types
+    pub use stoffelmpc_mpc::honeybadger::{
+        HoneyBadgerMPCClient,
+        HoneyBadgerMPCNode,
+        HoneyBadgerError,
+        ProtocolType as MPCSubProtocol,  // Renamed to avoid confusion with SDK's ProtocolType
+        SessionId,
+    };
+
+    // Secret sharing types
+    pub use stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::{
+        Robust,
+        RobustShare,
+    };
+    pub use stoffelmpc_mpc::common::share::shamir::{
+        NonRobust,
+        NonRobustShare,
+    };
+
+    // Common MPC traits and types
+    pub use stoffelmpc_mpc::common::{
+        MPCProtocol,
+        PreprocessingMPCProtocol,
+    };
+
+    // Network types
+    pub use stoffelnet::network_utils::{
+        Network,
+        NetworkError,
+        PartyId,
+        ClientId,
+    };
+}
 
 /// High-level Stoffel SDK - the main entry point for the Stoffel ecosystem
 ///
@@ -203,7 +313,7 @@ pub use error::{Error, Result};
 ///     ↓
 /// StoffelRuntime (holds Program + MPC config + Protocol)
 ///     ↓
-/// MPCClient / MPCNode (participants using configured protocol)
+/// MPCClient / MPCServer / MPCNode (participants using configured protocol)
 /// ```
 ///
 /// # Examples
@@ -243,7 +353,7 @@ pub use error::{Error, Result};
 ///
 /// // Create MPC participants (inherit HoneyBadger protocol from runtime)
 /// let client = runtime.client(100).with_inputs(vec![42]).build()?;
-/// let node = runtime.node(0).build()?;
+/// let server = runtime.server(0).build()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -255,7 +365,7 @@ pub use error::{Error, Result};
 /// - `Stoffel::compile_file(path)` - Compile from a file
 /// - `Stoffel::load(bytecode)` - Load from bytecode
 /// - `Stoffel::new()` - Create empty builder
-pub struct Stoffel<F = ark_bls12_381::Fr> {
+pub struct Stoffel {
     source: Option<String>,
     file_path: Option<String>,
     bytecode: Option<Vec<u8>>,
@@ -264,11 +374,10 @@ pub struct Stoffel<F = ark_bls12_381::Fr> {
     threshold: Option<usize>,
     instance_id: u64,
     network_config: Option<network_config::NetworkConfig>,
-    protocol_type: ProtocolType,  // Default MPC protocol
-    _field: std::marker::PhantomData<F>,
+    protocol_type: ProtocolType,  // Default MPC protocol (HoneyBadger with BLS12-381)
+    share_type: ShareType,  // Secret sharing scheme configuration
 }
 
-// Default implementation using BLS12-381 field
 impl Stoffel {
     /// Compile Stoffel source code
     ///
@@ -328,9 +437,7 @@ impl Stoffel {
     pub fn load(bytecode: Vec<u8>) -> Self {
         Self::from_bytecode(bytecode)
     }
-}
 
-impl<F> Stoffel<F> {
     /// Create a new Stoffel builder
     pub fn new() -> Self {
         Self {
@@ -343,7 +450,7 @@ impl<F> Stoffel<F> {
             instance_id: 0,
             network_config: None,
             protocol_type: ProtocolType::HoneyBadger,  // Default protocol
-            _field: std::marker::PhantomData,
+            share_type: ShareType::Robust,  // Default share type
         }
     }
 
@@ -359,7 +466,7 @@ impl<F> Stoffel<F> {
             instance_id: 0,
             network_config: None,
             protocol_type: ProtocolType::HoneyBadger,  // Default protocol
-            _field: std::marker::PhantomData,
+            share_type: ShareType::Robust,  // Default share type
         }
     }
 
@@ -438,6 +545,39 @@ impl<F> Stoffel<F> {
     /// ```
     pub fn protocol(mut self, protocol: ProtocolType) -> Self {
         self.protocol_type = protocol;
+        self
+    }
+
+    /// Set the secret sharing scheme type
+    ///
+    /// This configures which secret sharing implementation to use for MPC operations.
+    /// By default, `ShareType::Robust` is used, which provides error correction.
+    ///
+    /// # Arguments
+    ///
+    /// * `share_type` - The type of secret sharing to use
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::{Stoffel, ShareType};
+    /// # fn main() -> stoffel_rust_sdk::Result<()> {
+    /// // Use RobustShare (default - provides error correction)
+    /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
+    ///     .parties(5)
+    ///     .share_type(ShareType::Robust)
+    ///     .build()?;
+    ///
+    /// // Use NonRobustShare (simpler, faster)
+    /// let runtime2 = Stoffel::compile("main main() -> int64:\n  return 42")?
+    ///     .parties(5)
+    ///     .share_type(ShareType::NonRobust)
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn share_type(mut self, share_type: ShareType) -> Self {
+        self.share_type = share_type;
         self
     }
 
@@ -532,11 +672,11 @@ impl<F> Stoffel<F> {
     ///
     /// // Create MPC participants from the runtime
     /// let client = runtime.client(100).with_inputs(vec![42]).build()?;
-    /// let node = runtime.node(0).build()?;
+    /// let server = runtime.server(0).build()?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn build(self) -> Result<StoffelRuntime<F>> {
+    pub fn build(self) -> Result<StoffelRuntime> {
         // Get or compile bytecode
         let bytecode = if let Some(bc) = self.bytecode {
             bc
@@ -581,7 +721,7 @@ impl<F> Stoffel<F> {
                 instance_id: self.instance_id,
                 network_config: self.network_config,
                 protocol_type: self.protocol_type,  // Use configured protocol
-                _field: std::marker::PhantomData,
+                share_type: self.share_type,  // Use configured share type
             })
         } else {
             // No MPC configuration
@@ -592,7 +732,7 @@ impl<F> Stoffel<F> {
                 instance_id: self.instance_id,
                 network_config: self.network_config,
                 protocol_type: self.protocol_type,  // Use configured protocol
-                _field: std::marker::PhantomData,
+                share_type: self.share_type,  // Use configured share type
             })
         }
     }
@@ -636,7 +776,7 @@ impl<F> Stoffel<F> {
     }
 }
 
-impl<F> Default for Stoffel<F> {
+impl Default for Stoffel {
     fn default() -> Self {
         Self::new()
     }
@@ -666,20 +806,21 @@ impl<F> Default for Stoffel<F> {
 ///
 /// // Create MPC participants (automatically configured with HoneyBadger protocol)
 /// let client = runtime.client(100).with_inputs(vec![42]).build()?;
-/// let node = runtime.node(0).build()?;
+/// let server = runtime.server(0).build()?;
 /// # Ok(())
 /// # }
 /// ```
-pub struct StoffelRuntime<F = ark_bls12_381::Fr> {
+pub struct StoffelRuntime {
     program: program::Program,
     n_parties: Option<usize>,
     threshold: Option<usize>,
     instance_id: u64,
     network_config: Option<network_config::NetworkConfig>,
     /// The configured MPC protocol type
-    /// Currently defaults to HoneyBadger, but in the future can be configured
+    /// Currently defaults to HoneyBadger (using BLS12-381 field and AVID RBC)
     protocol_type: ProtocolType,
-    _field: std::marker::PhantomData<F>,
+    /// The configured secret sharing scheme type
+    share_type: ShareType,
 }
 
 /// MPC Protocol Type - specifies which MPC protocol to use
@@ -733,7 +874,90 @@ pub enum ProtocolType {
     HoneyBadger,
 }
 
-impl<F> StoffelRuntime<F> {
+/// Secret sharing scheme type
+///
+/// This enum specifies which secret sharing implementation to use for MPC operations.
+/// Different share types provide different security guarantees and performance characteristics.
+///
+/// The ShareType is a thin wrapper around the actual share implementations from the
+/// `mpc-protocols` crate, providing a user-friendly SDK interface.
+///
+/// # Default: RobustShare
+///
+/// By default, `ShareType::Robust` is used, which matches the default `ProtocolType::HoneyBadger`.
+/// HoneyBadger requires robust shares for its Byzantine fault tolerance properties.
+/// Developers don't need to specify the share type unless they want to change it.
+///
+/// # Changing the Share Type
+///
+/// Advanced developers can explicitly set the share type based on their security model:
+/// - Use `ShareType::NonRobust` for semi-honest settings where all parties are trusted
+/// - Keep `ShareType::Robust` (default) for Byzantine fault-tolerant scenarios
+///
+/// # Implementation Details
+///
+/// - `ShareType::Robust` maps to `stoffelmpc_mpc::honeybadger::robust_interpolate::RobustShare`
+/// - `ShareType::NonRobust` maps to `stoffelmpc_mpc::common::share::NonRobustShare`
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use stoffel_rust_sdk::prelude::*;
+/// # fn main() -> Result<()> {
+/// // Default: RobustShare is used automatically (matches HoneyBadger)
+/// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
+///     .parties(5)
+///     .build()?;
+///
+/// assert_eq!(runtime.protocol_type(), ProtocolType::HoneyBadger);
+/// assert_eq!(runtime.share_type(), ShareType::Robust);
+///
+/// // Advanced: Explicit share type for semi-honest settings
+/// let runtime2 = Stoffel::compile("main main() -> int64:\n  return 42")?
+///     .parties(5)
+///     .share_type(ShareType::NonRobust)  // Faster, but requires honest parties
+///     .build()?;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShareType {
+    /// RobustShare - Shamir secret sharing with error correction
+    ///
+    /// This is the default share type. It uses Reed-Solomon erasure coding
+    /// to provide robust reconstruction even when some shares are corrupted.
+    /// Required for HoneyBadger protocol's Byzantine fault tolerance.
+    ///
+    /// Maps to: `stoffelmpc_mpc::honeybadger::robust_interpolate::RobustShare<F>`
+    ///
+    /// Properties:
+    /// - Error correction capability
+    /// - Byzantine fault tolerant
+    /// - Slightly higher computational cost
+    Robust,
+
+    /// NonRobustShare - Standard Shamir secret sharing
+    ///
+    /// Simple Shamir secret sharing without error correction. Faster but
+    /// requires all shares to be correct. Suitable for semi-honest settings
+    /// or when error correction is not needed.
+    ///
+    /// Maps to: `stoffelmpc_mpc::common::share::NonRobustShare<F>`
+    ///
+    /// Properties:
+    /// - No error correction
+    /// - Faster computation
+    /// - Requires honest parties
+    NonRobust,
+}
+
+impl Default for ShareType {
+    fn default() -> Self {
+        ShareType::Robust
+    }
+}
+
+impl StoffelRuntime {
     /// Get a reference to the underlying program
     pub fn program(&self) -> &program::Program {
         &self.program
@@ -761,6 +985,14 @@ impl<F> StoffelRuntime<F> {
         self.protocol_type
     }
 
+    /// Get the configured secret sharing scheme type
+    ///
+    /// Returns the share type that will be used for secret sharing operations.
+    /// By default, returns `ShareType::Robust`.
+    pub fn share_type(&self) -> ShareType {
+        self.share_type
+    }
+
     /// Create an MPC client builder
     ///
     /// # Example
@@ -779,19 +1011,21 @@ impl<F> StoffelRuntime<F> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn client(&self, client_id: usize) -> program::MPCClientBuilder {
-        let (_, _, instance_id) = self.mpc_config()
+    pub fn client(&self, client_id: usize) -> client::MPCClientBuilder {
+        let (n_parties, threshold, instance_id) = self.mpc_config()
             .expect("Cannot create MPC client without MPC configuration. Use .parties(n).threshold(t) when building.");
 
-        program::MPCClientBuilder {
-            program: self.program.clone(),
+        client::MPCClientBuilder::new(
             client_id,
-            inputs: Vec::new(),
+            n_parties,
+            threshold,
             instance_id,
-        }
+            self.protocol_type,
+            self.share_type,
+        )
     }
 
-    /// Create an MPC node builder
+    /// Create an MPC server builder
     ///
     /// # Example
     ///
@@ -803,24 +1037,57 @@ impl<F> StoffelRuntime<F> {
     ///     .threshold(1)
     ///     .build()?;
     ///
-    /// let node = runtime.node(0)
+    /// let server = runtime.server(0)
     ///     .with_preprocessing(10, 25)
     ///     .build()?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn node(&self, party_id: usize) -> program::MPCNodeBuilder {
+    pub fn server(&self, party_id: usize) -> server::MPCServerBuilder {
         let (n_parties, threshold, instance_id) = self.mpc_config()
-            .expect("Cannot create MPC node without MPC configuration. Use .parties(n).threshold(t) when building.");
+            .expect("Cannot create MPC server without MPC configuration. Use .parties(n).threshold(t) when building.");
 
-        program::MPCNodeBuilder {
-            program: self.program.clone(),
+        server::MPCServerBuilder::new(
             party_id,
-            n_triples: None,
-            n_random_shares: None,
             n_parties,
             threshold,
             instance_id,
-        }
+            self.protocol_type,
+        )
+    }
+
+    /// Create an MPC node builder
+    ///
+    /// Nodes are for peer-to-peer scenarios where all parties both provide inputs
+    /// and participate in computation.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::Stoffel;
+    /// # fn main() -> stoffel_rust_sdk::Result<()> {
+    /// let runtime = Stoffel::compile("main main(a: secret int64, b: secret int64) -> secret int64:\n  return a * b")?
+    ///     .parties(5)
+    ///     .threshold(1)
+    ///     .build()?;
+    ///
+    /// let node = runtime.node(0)
+    ///     .with_inputs(vec![10, 20])
+    ///     .with_preprocessing(3, 8)
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn node(&self, party_id: usize) -> session::MPCNodeBuilder {
+        let (n_parties, threshold, instance_id) = self.mpc_config()
+            .expect("Cannot create MPC node without MPC configuration. Use .parties(n).threshold(t) when building.");
+
+        session::MPCNodeBuilder::new(
+            party_id,
+            n_parties,
+            threshold,
+            instance_id,
+            self.protocol_type,
+        )
     }
 }

@@ -1,0 +1,12 @@
+# Stoffel Network Configuration - Party 1
+
+[network]
+party_id = 1
+bind_address = "127.0.0.1:9002"
+bootstrap_address = "127.0.0.1:9000"
+min_parties = 3
+
+[mpc]
+n_parties = 5
+threshold = 1
+instance_id = 12345

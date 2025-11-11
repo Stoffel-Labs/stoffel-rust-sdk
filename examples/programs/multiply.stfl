@@ -1,0 +1,5 @@
+main main() -> secret int64:
+  var x: secret int64 = 6
+  var y: secret int64 = 7
+  var result: secret int64 = x * y
+  return result

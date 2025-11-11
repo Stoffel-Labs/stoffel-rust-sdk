@@ -1,0 +1,61 @@
+[package]
+name = "stoffel-rust-sdk"
+version = "0.1.0"
+edition = "2021"
+authors = ["Stoffel Labs"]
+description = "A friendly Rust SDK for the Stoffel ecosystem (Stoffel-Lang, StoffelVM, and MPC protocols)"
+license = "Apache-2.0"
+repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
+
+[dependencies]
+# Core Stoffel dependencies (using git submodules for version pinning)
+stoffellang = { path = "external/stoffel-lang" }
+stoffel-vm = { path = "external/stoffel-vm/crates/stoffel-vm" }
+stoffel-vm-types = { path = "external/stoffel-vm/crates/stoffel-vm-types" }
+stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
+stoffelmpc-network = { path = "external/mpc-protocols/network", optional = true }
+
+# Modern QUIC-based networking (optional, more advanced)
+stoffelnet = { path = "external/stoffel-networking", optional = true }
+
+# Utility dependencies
+anyhow = "1.0"
+thiserror = "1.0"
+ordered-float = "4.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+# MPC dependencies
+ark-bls12-381 = "0.5.0"
+ark-ff = "0.5.0"
+ark-serialize = "0.5.0"
+ark-std = { version = "0.5.0", features = ["std"] }
+rand = "0.8"
+
+# Async runtime for MPC operations
+tokio = { version = "1.0", features = ["full"], optional = true }
+futures = { version = "0.3", optional = true }
+
+# Cryptography for QUIC
+rustls = { version = "0.23", optional = true }
+
+# Logging
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full"] }
+
+[features]
+default = []
+# Enable QUIC-based networking layer
+networking = ["stoffelnet"]
+# Enable local MPC execution for testing and examples
+mpc-local = ["stoffelmpc-network", "stoffelnet", "tokio", "futures", "rustls", "tracing", "tracing-subscriber"]
+
+# Ensure all dependencies use the same local version of stoffelnet and mpc-protocols
+[patch."https://github.com/Stoffel-Labs/stoffel-networking.git"]
+stoffelnet = { path = "external/stoffel-networking" }
+
+[patch."https://github.com/Stoffel-Labs/mpc-protocols.git"]
+stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
