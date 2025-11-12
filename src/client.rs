@@ -117,8 +117,6 @@
 
 use crate::{Error, Result, ProtocolType};
 use std::sync::Arc;
-
-#[cfg(feature = "mpc-local")]
 use ark_ff::BigInteger;
 
 /// Shared MPC configuration from StoffelRuntime
@@ -181,14 +179,12 @@ pub struct MPCConfig {
 pub type ProtocolConfig = MPCConfig;
 
 // Re-export key types from mpc-protocols for convenience
-#[cfg(feature = "mpc-local")]
 pub use stoffelmpc_mpc::honeybadger::{
     HoneyBadgerError, HoneyBadgerMPCClient, HoneyBadgerMPCNode, HoneyBadgerMPCNodeOpts,
 };
 
 // AVID is the default RBC (Reliable Broadcast Channel) protocol for HoneyBadger
 // Advanced users can substitute other RBC implementations that implement the RBC trait
-#[cfg(feature = "mpc-local")]
 pub use stoffelmpc_mpc::common::rbc::rbc::Avid;
 
 //==============================================================================
@@ -298,13 +294,10 @@ pub struct MPCClient {
     inputs: Vec<i64>,
     config: Option<MPCConfig>,
     share_type: crate::ShareType,
-    #[cfg(feature = "mpc-local")]
     inner: Option<HoneyBadgerMPCClient<ark_bls12_381::Fr, Avid>>,
     // Network manager (always present - clients are network-based)
-    #[cfg(feature = "mpc-local")]
     network: std::sync::Arc<stoffelnet::transports::quic::QuicNetworkManager>,
     // Server addresses for network connectivity
-    #[cfg(feature = "mpc-local")]
     server_addresses: Vec<std::net::SocketAddr>,
 }
 
@@ -316,7 +309,6 @@ impl MPCClient {
     /// Create a new MPC client with network manager (internal use only)
     ///
     /// Network manager is required - clients are network-based by design.
-    #[cfg(feature = "mpc-local")]
     pub(crate) fn new(network: std::sync::Arc<stoffelnet::transports::quic::QuicNetworkManager>) -> Self {
         Self {
             client_id: None,
@@ -367,11 +359,8 @@ impl MPCClient {
             inputs: self.inputs,
             config: Some(config),
             share_type: self.share_type,
-            #[cfg(feature = "mpc-local")]
             inner: self.inner,
-            #[cfg(feature = "mpc-local")]
             network: self.network,
-            #[cfg(feature = "mpc-local")]
             server_addresses: self.server_addresses,
         })
     }
@@ -411,9 +400,7 @@ impl MPCClient {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
     /// Set server addresses for network connectivity (optional configuration)
-    #[cfg(feature = "mpc-local")]
     pub fn set_server_addresses(&mut self, server_addresses: Vec<std::net::SocketAddr>) {
         self.server_addresses = server_addresses;
     }
@@ -558,7 +545,6 @@ impl MPCClient {
     /// 3. Automatically handle the input masking protocol
     ///
     /// See `examples/quick_start_local_network_real.rs` for a complete example.
-    #[cfg(feature = "mpc-local")]
     pub async fn send_inputs(&mut self) -> Result<()> {
         use ark_bls12_381::Fr;
 
@@ -630,7 +616,6 @@ impl MPCClient {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
     pub async fn process_message<N>(&mut self, raw_msg: Vec<u8>, network: Arc<N>) -> Result<()>
     where
         N: stoffelnet::network_utils::Network + Send + Sync + 'static,
@@ -733,7 +718,6 @@ impl MPCClient {
     ///
     /// Similar to `generate_input_shares_robust()` but uses `NonRobustShare` for simpler,
     /// faster secret sharing without error correction.
-    #[cfg(feature = "mpc-local")]
     pub fn generate_input_shares_non_robust(&self) -> Result<Vec<Vec<stoffelmpc_mpc::common::share::shamir::NonRobustShare<ark_bls12_381::Fr>>>> {
         use ark_bls12_381::Fr;
         use stoffelmpc_mpc::common::share::shamir::NonRobustShare;
@@ -800,7 +784,6 @@ impl MPCClient {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
     pub fn generate_input_shares(&self) -> Result<Vec<Vec<u8>>> {
         use ark_serialize::CanonicalSerialize;
 
@@ -915,7 +898,6 @@ impl MPCClient {
     /// 3. Return the reconstructed output values
     ///
     /// See `examples/quick_start_local_network_real.rs` for a complete example.
-    #[cfg(feature = "mpc-local")]
     pub async fn receive_outputs(&mut self) -> Result<Vec<i64>> {
         use ark_bls12_381::Fr;
         use ark_ff::PrimeField;
@@ -1000,26 +982,6 @@ impl MPCClient {
     }
 
     // =========================================================================
-    // Stubs for builds without mpc-local feature
-    // =========================================================================
-
-    /// Secret share and send inputs to the MPC network (non-async stub for non-mpc-local builds)
-    #[cfg(not(feature = "mpc-local"))]
-    pub fn send_inputs(&mut self) -> Result<()> {
-        Err(Error::RuntimeError(
-            "send_inputs() requires the 'mpc-local' feature to be enabled".to_string()
-        ))
-    }
-
-    /// Receive and reconstruct computation outputs (non-async stub for non-mpc-local builds)
-    #[cfg(not(feature = "mpc-local"))]
-    pub fn receive_outputs(&mut self) -> Result<Vec<i64>> {
-        Err(Error::RuntimeError(
-            "receive_outputs() requires the 'mpc-local' feature to be enabled".to_string()
-        ))
-    }
-
-    // =========================================================================
     // Networking Methods (Client Network Operations)
     // =========================================================================
 
@@ -1049,7 +1011,6 @@ impl MPCClient {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
     pub fn add_server(&mut self, server_id: usize, address: std::net::SocketAddr) {
         // Register server in network manager (required for connect_as_client to work)
         // This matches the pattern used in MPCServer::add_peer()
@@ -1100,7 +1061,6 @@ impl MPCClient {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
     pub async fn connect_to_servers(&mut self) -> Result<tokio::sync::mpsc::Receiver<Vec<u8>>> {
         use tokio::sync::mpsc;
         use tracing::{info, error, warn, debug};
@@ -1265,12 +1225,10 @@ impl MPCClientBuilder {
         };
 
         // Create network manager for this client - clients are always network-based
-        #[cfg(feature = "mpc-local")]
         let network = std::sync::Arc::new(
             stoffelnet::transports::quic::QuicNetworkManager::with_node_id(self.client_id)
         );
 
-        #[cfg(feature = "mpc-local")]
         let client = MPCClient::new(network)
             .with_client_id(self.client_id)
             .with_config(config)
@@ -1278,13 +1236,7 @@ impl MPCClientBuilder {
             .with_share_type(self.share_type)
             .build()?;
 
-        #[cfg(feature = "mpc-local")]
-        return Ok(client);
-
-        #[cfg(not(feature = "mpc-local"))]
-        return Err(Error::InvalidInput(
-            "MPC client requires 'mpc-local' feature for network support".to_string()
-        ));
+        Ok(client)
     }
 }
 

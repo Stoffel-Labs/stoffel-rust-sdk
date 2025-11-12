@@ -29,32 +29,26 @@
 use crate::{Error, Result};
 use std::sync::Arc;
 
-#[cfg(feature = "mpc-local")]
-use {
-    stoffel_vm::core_vm::VirtualMachine,
-    stoffelmpc_network::fake_network::{FakeNetwork, FakeNetworkConfig},
-    tokio::sync::mpsc::Receiver,
-    tokio::time::{timeout, Duration},
-    ark_bls12_381::Fr,
-    stoffelmpc_mpc::honeybadger::{HoneyBadgerMPCNode, HoneyBadgerMPCNodeOpts},
-    stoffelmpc_mpc::common::{MPCProtocol, PreprocessingMPCProtocol},
-    stoffelmpc_mpc::common::rbc::rbc::Avid as RBCImpl,
-    stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare,
-    rand::SeedableRng,
-};
+use stoffel_vm::core_vm::VirtualMachine;
+use stoffelmpc_network::fake_network::{FakeNetwork, FakeNetworkConfig};
+use tokio::time::{timeout, Duration};
+use ark_bls12_381::Fr;
+use stoffelmpc_mpc::honeybadger::{HoneyBadgerMPCNode, HoneyBadgerMPCNodeOpts};
+use stoffelmpc_mpc::common::{MPCProtocol, PreprocessingMPCProtocol};
+use stoffelmpc_mpc::common::rbc::rbc::Avid as RBCImpl;
+use stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare;
+use rand::SeedableRng;
 
 /// A local MPC network for testing with multiple parties running in-process
-#[cfg(feature = "mpc-local")]
 pub struct LocalMPCNetwork {
     n_parties: usize,
     threshold: usize,
     instance_id: u64,
     network: Arc<FakeNetwork>,
-    receivers: Vec<Receiver<Vec<u8>>>,
+    receivers: Vec<tokio::sync::mpsc::Receiver<Vec<u8>>>,
     nodes: Vec<HoneyBadgerMPCNode<Fr, RBCImpl>>,
 }
 
-#[cfg(feature = "mpc-local")]
 impl LocalMPCNetwork {
     /// Create a new local MPC network using in-memory channels
     ///
@@ -241,17 +235,5 @@ impl LocalMPCNetwork {
     /// Get the instance ID
     pub fn instance_id(&self) -> u64 {
         self.instance_id
-    }
-}
-
-#[cfg(not(feature = "mpc-local"))]
-pub struct LocalMPCNetwork;
-
-#[cfg(not(feature = "mpc-local"))]
-impl LocalMPCNetwork {
-    pub async fn new(_n_parties: usize, _threshold: usize, _n_triples: usize, _n_random: usize) -> Result<Self> {
-        Err(Error::RuntimeError(
-            "Local MPC is not enabled. Enable the 'mpc-local' feature to use this functionality.".to_string()
-        ))
     }
 }

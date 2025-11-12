@@ -233,23 +233,19 @@ pub mod advanced;
 ///
 /// Re-exports HoneyBadger QUIC network setup utilities from stoffel-vm.
 /// These provide automatic setup of QUIC listeners, connections, and message handlers.
-#[cfg(feature = "mpc-local")]
 pub mod network_helpers;
 
 /// Convenient re-exports for common usage
 pub mod prelude;
 
-#[cfg(feature = "mpc-local")]
 pub mod mpc_local;
 
-#[cfg(feature = "mpc-local")]
 pub mod stoffel_mpc;
 
 pub use error::{Error, Result};
 
 // Re-export key types from mpc-protocols for advanced users
 // These types are used internally by the SDK and exposed for advanced usage
-#[cfg(feature = "mpc-local")]
 pub mod mpc_types {
     //! Re-exported types from the mpc-protocols crate
     //!

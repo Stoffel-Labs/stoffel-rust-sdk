@@ -18,31 +18,35 @@ The SDK is designed to:
 
 **Current Version:** 0.1.0 (Development)
 
-- ✅ Stoffel-Lang compiler integration complete
-- ✅ StoffelVM runtime integration complete
-- ✅ MPC protocols API complete (HoneyBadger Byzantine fault-tolerant protocol)
-- ✅ HoneyBadger client/server/node wrappers with automatic constraint validation
-- ✅ Automatic network manager creation via runtime
-- ✅ **Working MPC example with real execution** (`examples/quick_start_local_network_real.rs`)
-- ✅ Comprehensive SDK API examples demonstrating all features
-- ✅ Builds successfully with all dependencies
+### Implemented ✅
 
-**MPC Protocol:** HoneyBadger (Byzantine fault-tolerant, asynchronous)
-- Constraint: n >= 3t + 1 (automatically validated)
-- Secret Sharing: RobustShare (Reed-Solomon erasure coding)
-- Real QUIC networking for production deployments
+- **Stoffel-Lang Integration**
+  - Compile Stoffel programs to bytecode
+  - Full language support
 
-**Network Infrastructure:**
-- `network_helpers` module provides production-ready networking
-- `setup_honeybadger_quic_network()` - Complete network in one call
-- Automatic QUIC listeners, connections, and message handlers
-- See `examples/quick_start_local_network_real.rs` for working example
+- **StoffelVM Integration**
+  - Execute bytecode on the VM
+  - Local testing without networking
 
-**Examples:**
-- See `examples/README.md` for complete documentation
-- `quick_start_local_network_real.rs` - **Fully functional MPC execution**
-- `stoffel_sdk_demo.rs` - Complete API tour
-- `quick_start_network.rs` - Quick start guide
+- **MPC Configuration API**
+  - Configure parties, threshold, protocols
+  - Builder pattern for participants (Client, Server, Node)
+  - Automatic constraint validation (n ≥ 3t + 1 for Byzantine tolerance)
+
+- **MPC Network Infrastructure**
+  - `setup_mpc_network()` - High-level server network setup
+  - `setup_mpc_clients()` - Automatic client configuration
+  - QUIC transport integration
+  - Server lifecycle management (start, connect, stop)
+  - SDK-level wrappers around StoffelVM networking components
+  - Message processor spawning (`spawn_message_processor()`) for protocol message routing
+  - Node initialization API (`initialize_node()`) for proper setup order
+
+### Roadmap 🎯
+
+1. **Complete MPC Protocol Integration** - Full preprocessing and computation coordination
+2. **Distributed Deployment Helpers** - Tools for multi-machine MPC deployments
+3. **Advanced Protocol Support** - Additional MPC protocols beyond HoneyBadger
 
 ## Installation
 
@@ -69,138 +73,102 @@ git submodule update --init --recursive
 ### Build
 
 ```bash
-# Build with default features
+# Build (includes full MPC networking by default)
 cargo build
-
-# Build with QUIC networking enabled
-cargo build --features networking
 
 # Optimized build
 cargo build --release
-
-# Optimized build with networking
-cargo build --release --features networking
 ```
 
-### Running Examples
+### Examples
 
-The SDK includes focused examples demonstrating key functionality:
+The SDK provides MPC network infrastructure examples running on localhost:
 
 ```bash
-# 1. Quick start - Local HoneyBadger MPC network (START HERE)
-cargo run --example quick_start_local_network
+# ⭐ Complete MPC Workflow (START HERE)
+cargo run --example complete_mpc_workflow
 
-# 2. MPC participants - MPCClient and MPCServer
-cargo run --example mpc_demo
+# Simple MPC network setup (all parties on 127.0.0.1)
+cargo run --example simple_mpc_network
 
-# 3. Protocol configuration - HoneyBadger Byzantine fault tolerance
-cargo run --example protocol_demo
+# Bytecode execution on MPC servers
+cargo run --example bytecode_execution
 
-# 4. Network configuration - TOML config files
-cargo run --example network_config_demo
-
-# 5. Comprehensive features - All SDK capabilities
-cargo run --example program_demo
+# MPC compilation and configuration API
+cargo run --example mpc_computation
 ```
 
-**Example Guide:**
+**Recommended starting point**: `complete_mpc_workflow` demonstrates the full 11-step MPC workflow including:
+- Node initialization before message processor spawning
+- QUIC network setup and peer-to-peer connectivity
+- Message processors for protocol message routing
+- Concurrent preprocessing (following StoffelVM test patterns)
+- Client connection and input distribution
 
-| Example | Purpose | Key Concepts |
-|---------|---------|--------------|
-| **`quick_start_local_network.rs`** | ⭐ **START HERE** - Complete local HoneyBadger MPC network | 5-party setup, preprocessing, client input, secure computation, output reconstruction. Follows `external/stoffel-vm/tests` pattern. |
-| `mpc_demo.rs` | MPC participant roles | MPCClient (input provider), MPCServer (compute node) |
-| `protocol_demo.rs` | Protocol configuration | HoneyBadger, RobustShare, Byzantine fault tolerance |
-| `network_config_demo.rs` | Network deployment | TOML configuration, bind addresses, bootnode setup |
-| `program_demo.rs` | Comprehensive SDK tour | Compilation, local execution, MPC config, participants, function listing |
+**Note**: Examples run on localhost for testing. For distributed deployment, simply change IP addresses from `127.0.0.1` to actual machine IPs - no code changes needed!
+
+For complete end-to-end MPC execution, see StoffelVM's integration tests:
+
+```bash
+cd external/stoffel-vm
+cargo test --package stoffel-vm --lib tests::mpc_multiplication_integration -- --nocapture --test-threads=1
+```
+
+These tests demonstrate:
+- Complete QUIC network setup
+- HoneyBadger Byzantine fault-tolerant protocol
+- Preprocessing (Beaver triple generation)
+- Client input distribution
+- Secure computation (10 × 20 = 200)
+- Output reconstruction
+
+See [examples/README.md](examples/README.md) for SDK roadmap and integration guidance.
 
 ## Quick Start
 
-### Production MPC in 3 Steps
+### SDK Usage
 
-```rust
-use stoffel_rust_sdk::prelude::*;
-use ark_bls12_381::Fr;
-
-#[tokio::main]
-async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    // Step 1: Compile Stoffel program
-    let runtime = Stoffel::compile(
-        "main main(a: secret int64, b: secret int64) -> secret int64:\n  return a * b"
-    )?
-        .parties(5)      // 5-party MPC network
-        .threshold(1)    // Tolerates 1 Byzantine fault
-        .build()?;
-
-    // Step 2: Setup complete network infrastructure (ONE CALL!)
-    let (mut servers, receivers) = setup_honeybadger_quic_network::<Fr>(
-        5,      // n_parties
-        1,      // threshold
-        3,      // n_triples
-        8,      // n_random_shares
-        42,     // instance_id
-        19200,  // base_port
-        HoneyBadgerQuicConfig::default(),
-    ).await?;
-
-    // Step 3: Start and connect
-    for server in &mut servers {
-        server.start().await?;
-    }
-    for server in &servers {
-        server.connect_to_peers().await?;
-    }
-
-    // Network is ready! Run MPC protocol...
-    // See examples/quick_start_local_network_real.rs for complete implementation
-
-    Ok(())
-}
-```
-
-### What You Get
-
-**Automatic Infrastructure:**
-- ✅ QUIC listener setup on all ports
-- ✅ Connection establishment with retries
-- ✅ Message handler task spawning
-- ✅ Full mesh network topology
-- ✅ Byzantine fault-tolerant HoneyBadger protocol
-
-**One Function Call:**
-```rust
-setup_honeybadger_quic_network()  // Complete network ready!
-```
-
-### API Exploration (without networking)
-
-For learning the SDK API:
+The SDK provides high-level APIs for Stoffel program compilation and VM execution:
 
 ```rust
 use stoffel_rust_sdk::prelude::*;
 
 fn main() -> Result<()> {
-    // Compile with MPC configuration
-    let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-        .parties(5)
-        .threshold(1)
+    // 1. Compile Stoffel program
+    let source = r#"
+main main() -> int64:
+  return 42
+    "#;
+
+    let runtime = Stoffel::compile(source)?
+        .parties(5)       // Configure for 5-party MPC
+        .threshold(1)     // Byzantine fault tolerance
         .build()?;
 
-    // Create participants (automatic network manager creation)
+    println!("Protocol: {:?}", runtime.protocol_type());
+
+    // 2. Test locally before MPC deployment
+    let result = runtime.program().execute_local()?;
+    println!("Result: {:?}", result);
+
+    // 3. Configure MPC participants
     let server = runtime.server(0).build()?;
-    let client = runtime.client(100).with_inputs(vec![10, 20]).build()?;
-    let node = runtime.node(0).with_inputs(vec![10, 20]).build()?;
+    let client = runtime.client(100)
+        .with_inputs(vec![10, 20])
+        .build()?;
 
     Ok(())
 }
 ```
 
-### Local Testing (no MPC)
+**What the SDK provides:**
+- ✅ Stoffel-Lang compilation
+- ✅ VM execution
+- ✅ MPC configuration types
+- ✅ Participant builders (Client, Server, Node)
 
-```rust
-// Quick local execution without MPC
-let result = Stoffel::compile("main main() -> int64:\n  return 42")?
-    .execute_local()?;
-```
+**What's next:**
+- ⚠️ MPC network infrastructure (see roadmap in [examples/README.md](examples/README.md))
 
 **Key features:**
 - **MPC-first design** - Programs ARE MPC programs, not an afterthought
@@ -266,7 +234,7 @@ The fastest way to see the SDK in action with full MPC networking is to run the 
 
 ```bash
 # Self-contained MPC network demonstration
-cargo run --example quick_start --features mpc-local
+cargo run --example quick_start
 ```
 
 This example demonstrates:
@@ -455,58 +423,52 @@ async fn configure_mpc() -> Result<(), String> {
 
 ## Architecture
 
-### MPC-First Architecture
+### Design Philosophy
 
-The SDK embraces **Stoffel's MPC-first philosophy**: programs ARE MPC programs by default.
+The SDK follows a **progressive disclosure** approach - simple by default, powerful when needed:
 
-1. **Stoffel** - The branded entry point for all SDK operations
-   - `Stoffel::compile(source)` - Returns a ProgramBuilder
-   - `Stoffel::compile_file(path)` - Returns a ProgramBuilder
-   - `Stoffel::load(bytecode)` - Returns a ProgramBuilder
-   - `Stoffel::builder()` - Advanced compilation options
+**Three API Levels:**
 
-2. **ProgramBuilder** - Configure MPC parameters during compilation
-   - `.parties(n)` - Set number of MPC servers (must satisfy n >= 3t + 1)
-   - `.threshold(t)` - Set Byzantine fault tolerance (defaults to 1)
-   - `.instance_id(id)` - Set computation instance ID
-   - `.protocol(type)` - Set protocol (defaults to HoneyBadger)
-   - `.build()` - Build the Program with MPC config (validates constraints)
-   - `.execute_local()` - Quick local test (skips MPC config)
+1. **`prelude` - Simple API** (Recommended for most users)
+   - Clean, minimal API for shipping MPC applications
+   - Everything needed for common use cases
+   - Example: `simple_mpc.rs`
 
-3. **Program** - A compiled program with built-in MPC configuration
-   - `.execute_local()` - Test locally on the VM
-   - `.server(party_id)` - Create MPC server tied to THIS program
-   - `.client(client_id)` - Create MPC client tied to THIS program
-   - `.mpc_config()` - Get (parties, threshold, instance_id)
+2. **`advanced` - Advanced Abstractions** (For custom applications)
+   - Proper abstractions for fine-grained control
+   - ShareManager, NetworkBuilder
+   - NO raw internal types exposed
+   - Example: `advanced_shares.rs`
 
-**This design makes MPC central:**
-- **MPC is built-in** - Configure parties/threshold when compiling
-- **Servers and clients FROM program** - Created directly from the program object
-- **Testing is explicit** - `.execute_local()` makes it clear this is testing
-- **No separate MPCProgram** - Every program IS an MPC program
+3. **`network_helpers` - Production Infrastructure**
+   - Complete network setup helpers
+   - QUIC networking, message handlers
+   - Example: `quick_start_local_network_real.rs`
 
-**Example:**
+### Core API Flow
 
 ```rust
-// Compile with MPC configuration (HoneyBadger protocol)
-// Constraint: n >= 3t + 1 for Byzantine fault tolerance
-let program = Stoffel::compile("main main() -> int64:\n  return 42")?
-    .parties(5)        // n=5 servers
-    .threshold(1)      // t=1 Byzantine faults (5 >= 3*1+1 = 4 ✓)
+use stoffel_rust_sdk::prelude::*;
+
+// 1. Compile with MPC configuration
+let runtime = Stoffel::compile(source)?
+    .parties(5)       // 5-party MPC network
+    .threshold(1)     // Byzantine fault tolerance
     .build()?;
 
-// Test locally before deployment
-let result = program.execute_local()?;
+// 2. Test locally before deployment
+let result = runtime.program().execute_local()?;
 
-// Create servers FROM the program
-let server = program.server(0).build()?;
-
-// Create clients FROM the program
-let client = program.client(100).with_inputs(vec![42]).build()?;
-
-// Quick testing (skip MPC config)
-let result = Stoffel::compile(source)?.execute_local()?;
+// 3. Create MPC participants
+let server = runtime.server(0).build()?;
+let client = runtime.client(100).with_inputs(vec![10, 20]).build()?;
 ```
+
+**Key Design Principles:**
+- **MPC is built-in** - Configure parties/threshold when compiling
+- **Testing is explicit** - `.execute_local()` for local testing
+- **Clean abstractions** - Even advanced features use proper abstractions
+- **Extensible** - Build custom SDKs on top of these primitives
 
 ### MPC as a Service Model
 
@@ -547,18 +509,26 @@ let server = MPCServer::<ark_bn254::Fr>::builder()...
 
 ```
 src/
-├── lib.rs           # Main library entry and Stoffel builder
-├── program.rs       # ⭐ NEW: Unified Program API (recommended)
-├── compiler.rs      # High-level wrapper around stoffellang compiler
-├── vm.rs            # High-level wrapper around StoffelVM
-├── client.rs        # MPCClient - clients sending inputs to MPC network
-├── server.rs        # MPCServer - servers performing MPC computation
-├── session.rs       # MPCNode - full participants (client + server)
-├── error.rs         # Unified error types
-└── prelude.rs       # Convenient re-exports
+├── lib.rs              # Stoffel builder - main entry point
+├── prelude.rs          # ⭐ Simple API (START HERE)
+├── advanced.rs         # ⭐⭐ Advanced abstractions (ShareManager, NetworkBuilder)
+├── network_helpers.rs  # ⭐⭐⭐ Production infrastructure
+│
+├── program.rs          # Compiled program with MPC config
+├── compiler.rs         # Stoffel-Lang compiler wrapper
+├── vm.rs               # StoffelVM execution wrapper
+├── client.rs           # MPCClient - input providers
+├── server.rs           # MPCServer - compute nodes
+├── session.rs          # MPCNode - combined mode
+├── network_config.rs   # Network configuration types
+├── secret_sharing.rs   # Secret sharing utilities
+└── error.rs            # Unified error types
 ```
 
-**Recommended:** Use the new `program` module for all new code. It provides a cleaner, more intuitive API.
+**Module Usage:**
+- **Most users**: Import `prelude` only
+- **Custom applications**: Add `advanced` for ShareManager/NetworkBuilder
+- **Production deployments**: Use `network_helpers` for complete infrastructure
 
 ### Git Submodules
 
@@ -650,7 +620,12 @@ cargo doc --open
    - Tracked in [Linear issue STO-104](https://linear.app/stoffel-labs/issue/STO-104)
    - Future: Programs will access client inputs via special syntax like `client_input(client_id, index)`
 
-5. **MPC Preprocessing**: Preprocessing material generation (beaver triples, random shares) is managed internally but requires careful parameter tuning for production use.
+5. **MPC Preprocessing**:
+   - Preprocessing material generation (beaver triples, random shares) is managed internally
+   - Requires careful parameter tuning for production use
+   - Currently requires a coordinator service to orchestrate preprocessing across servers (tracked in Linear issue STO-245)
+   - Message processors are implemented and route protocol messages correctly
+   - Full preprocessing will work once coordinator service is added
 
 6. **Object/Array Conversion**: Complex type conversions between SDK and VM (objects, arrays) are not yet fully implemented.
 
@@ -666,6 +641,7 @@ Issues and feature development are tracked in Linear:
 
 **Feature Development:**
 - [STO-104](https://linear.app/stoffel-labs/issue/STO-104) - Client input access in Stoffel programs
+- [STO-245](https://linear.app/stoffel-labs/issue/STO-245) - Coordinator service for MPC preprocessing orchestration
 
 **Compiler Warnings:**
 - [STO-228](https://linear.app/stoffel-labs/issue/STO-228) - Unused imports

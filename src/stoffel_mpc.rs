@@ -45,21 +45,16 @@
 //! ```
 
 use crate::{Error, Result};
-
-#[cfg(feature = "mpc-local")]
-use {
-    crate::mpc_local::LocalMPCNetwork,
-    stoffel_vm::core_vm::VirtualMachine,
-    stoffelmpc_mpc::honeybadger::HoneyBadgerMPCNode,
-    stoffelmpc_mpc::common::rbc::rbc::Avid as RBCImpl,
-    ark_bls12_381::Fr,
-};
+use crate::mpc_local::LocalMPCNetwork;
+use stoffel_vm::core_vm::VirtualMachine;
+use stoffelmpc_mpc::honeybadger::HoneyBadgerMPCNode;
+use stoffelmpc_mpc::common::rbc::rbc::Avid as RBCImpl;
+use ark_bls12_381::Fr;
 
 /// Type alias for client IDs
 pub type ClientId = u64;
 
 /// High-level MPC coordinator that manages compilation, clients, and servers
-#[cfg(feature = "mpc-local")]
 pub struct StoffelMPC {
     /// Compiled Stoffel bytecode
     bytecode: Vec<u8>,
@@ -69,7 +64,6 @@ pub struct StoffelMPC {
     n_parties: usize,
 }
 
-#[cfg(feature = "mpc-local")]
 impl StoffelMPC {
     /// Create a new StoffelMPC instance
     ///
@@ -151,14 +145,12 @@ impl StoffelMPC {
 }
 
 /// An MPC server that executes Stoffel programs with secret-shared data
-#[cfg(feature = "mpc-local")]
 pub struct MPCServer {
     party_id: usize,
     vm: VirtualMachine,
     bytecode: Vec<u8>,
 }
 
-#[cfg(feature = "mpc-local")]
 impl MPCServer {
     /// Get the party ID for this server
     pub fn party_id(&self) -> usize {
@@ -192,13 +184,11 @@ impl MPCServer {
 }
 
 /// An MPC client that provides secret inputs and retrieves outputs
-#[cfg(feature = "mpc-local")]
 pub struct MPCClient<'a> {
     client_id: ClientId,
     network: &'a LocalMPCNetwork,
 }
 
-#[cfg(feature = "mpc-local")]
 impl<'a> MPCClient<'a> {
     /// Get the client ID
     pub fn client_id(&self) -> ClientId {
@@ -238,17 +228,5 @@ impl<'a> MPCClient<'a> {
 
         println!("  [Client {}] Would retrieve output", self.client_id);
         Ok(42) // Placeholder
-    }
-}
-
-#[cfg(not(feature = "mpc-local"))]
-pub struct StoffelMPC;
-
-#[cfg(not(feature = "mpc-local"))]
-impl StoffelMPC {
-    pub async fn new(_source: &str, _n_parties: usize, _threshold: usize) -> Result<Self> {
-        Err(Error::RuntimeError(
-            "MPC features require the 'mpc-local' feature flag".to_string()
-        ))
     }
 }

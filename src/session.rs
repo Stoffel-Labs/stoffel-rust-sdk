@@ -60,20 +60,16 @@ use crate::{Error, Result};
 use crate::client::MPCConfig;
 
 // Re-export key types from mpc-protocols for convenience
-#[cfg(feature = "mpc-local")]
 pub use stoffelmpc_mpc::honeybadger::{
     HoneyBadgerMPCNode,
     SessionId,
     ProtocolType,
 };
 
-#[cfg(feature = "mpc-local")]
 use stoffelmpc_mpc::common::PreprocessingMPCProtocol;
 
-#[cfg(feature = "mpc-local")]
 use ark_ff::BigInteger;
 
-#[cfg(feature = "mpc-local")]
 pub use stoffelmpc_mpc::common::rbc::rbc::Avid;
 
 /// MPC node that acts as both client and server
@@ -143,10 +139,8 @@ pub struct MPCNode {
     n_triples: usize,
     n_random_shares: usize,
     config: Option<MPCConfig>,
-    #[cfg(feature = "mpc-local")]
     inner: Option<HoneyBadgerMPCNode<ark_bls12_381::Fr, Avid>>,  // Uses node as it participates in computation
     // Network manager for full network mode (required)
-    #[cfg(feature = "mpc-local")]
     network: std::sync::Arc<stoffelnet::transports::quic::QuicNetworkManager>,
 }
 
@@ -156,7 +150,6 @@ impl MPCNode {
     // =========================================================================
 
     /// Create a new MPC session builder (internal use only)
-    #[cfg(feature = "mpc-local")]
     pub(crate) fn new(network: std::sync::Arc<stoffelnet::transports::quic::QuicNetworkManager>) -> Self {
         Self {
             party_id: None,
@@ -166,18 +159,6 @@ impl MPCNode {
             config: None,
             inner: None,
             network,
-        }
-    }
-
-    /// Create a new MPC session builder without network (non-local mode)
-    #[cfg(not(feature = "mpc-local"))]
-    pub(crate) fn new() -> Self {
-        Self {
-            party_id: None,
-            inputs: Vec::new(),
-            n_triples: 0,
-            n_random_shares: 0,
-            config: None,
         }
     }
 
@@ -238,9 +219,7 @@ impl MPCNode {
             n_triples: self.n_triples,
             n_random_shares: self.n_random_shares,
             config: Some(config),
-            #[cfg(feature = "mpc-local")]
             inner: self.inner,
-            #[cfg(feature = "mpc-local")]
             network: self.network,
         })
     }
@@ -275,7 +254,6 @@ impl MPCNode {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
     // =========================================================================
     // Accessor Methods
     // =========================================================================
@@ -351,14 +329,12 @@ impl MPCNode {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
     pub fn network_mut(&mut self) -> &mut stoffelnet::transports::quic::QuicNetworkManager {
         std::sync::Arc::get_mut(&mut self.network)
             .expect("Cannot get mutable reference to network (Arc has multiple owners)")
     }
 
     /// Get a reference to the network manager (read-only)
-    #[cfg(feature = "mpc-local")]
     pub fn network(&self) -> &stoffelnet::transports::quic::QuicNetworkManager {
         &self.network
     }
@@ -413,7 +389,6 @@ impl MPCNode {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
     pub async fn run(&mut self, _bytecode: &[u8]) -> Result<Vec<i64>> {
         use ark_bls12_381::Fr;
         use ark_ff::PrimeField;
@@ -583,7 +558,6 @@ impl MPCNode {
     ///
     /// This is an advanced API. For most use cases, use `run()` to execute
     /// a complete Stoffel program instead.
-    #[cfg(feature = "mpc-local")]
     pub async fn mul(&mut self, _a: ark_bls12_381::Fr, _b: ark_bls12_381::Fr) -> Result<ark_bls12_381::Fr> {
         // TODO: Use beaver triple from preprocessing to perform secure multiplication
         Err(Error::RuntimeError(
@@ -614,41 +588,12 @@ impl MPCNode {
     ///
     /// This is an advanced API. For most use cases, use `run()` which handles
     /// output reconstruction automatically.
-    #[cfg(feature = "mpc-local")]
     pub async fn output(&mut self, _share: ark_bls12_381::Fr) -> Result<i64> {
         // TODO: Collect shares from all parties
         // TODO: Reconstruct value using Lagrange interpolation
         // TODO: Convert field element back to i64
         Err(Error::RuntimeError(
             "output() not yet fully implemented - protocol integration pending".to_string()
-        ))
-    }
-
-    // =========================================================================
-    // Stubs for builds without mpc-local feature
-    // =========================================================================
-
-    /// Run MPC protocol (non-async stub for non-mpc-local builds)
-    #[cfg(not(feature = "mpc-local"))]
-    pub fn run(&mut self, _bytecode: &[u8]) -> Result<Vec<i64>> {
-        Err(Error::RuntimeError(
-            "run() requires the 'mpc-local' feature to be enabled".to_string()
-        ))
-    }
-
-    /// Secure multiplication (non-async stub for non-mpc-local builds)
-    #[cfg(not(feature = "mpc-local"))]
-    pub fn mul(&mut self, _a: i64, _b: i64) -> Result<i64> {
-        Err(Error::RuntimeError(
-            "mul() requires the 'mpc-local' feature to be enabled".to_string()
-        ))
-    }
-
-    /// Output reconstruction (non-async stub for non-mpc-local builds)
-    #[cfg(not(feature = "mpc-local"))]
-    pub fn output(&mut self, _share: i64) -> Result<i64> {
-        Err(Error::RuntimeError(
-            "output() requires the 'mpc-local' feature to be enabled".to_string()
         ))
     }
 }
@@ -759,16 +704,11 @@ impl MPCNodeBuilder {
         };
 
         // Create network manager for this node (runtime-managed abstraction)
-        #[cfg(feature = "mpc-local")]
         let network = std::sync::Arc::new(
             stoffelnet::transports::quic::QuicNetworkManager::with_node_id(self.party_id)
         );
 
-        #[cfg(feature = "mpc-local")]
         let node = MPCNode::new(network);
-
-        #[cfg(not(feature = "mpc-local"))]
-        let node = MPCNode::new();
 
         node
             .with_party_id(self.party_id)

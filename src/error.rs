@@ -34,7 +34,19 @@ pub enum Error {
 
     /// Network error (for MPC)
     #[error("Network error: {0}")]
-    NetworkError(String),
+    Network(String),
+
+    /// Configuration error
+    #[error("Configuration error: {0}")]
+    Configuration(String),
+
+    /// Preprocessing error
+    #[error("Preprocessing error: {0}")]
+    Preprocessing(String),
+
+    /// Computation error
+    #[error("Computation error: {0}")]
+    Computation(String),
 
     /// Generic error
     #[error("{0}")]

@@ -27,6 +27,43 @@ use crate::{Error, Result};
 use std::collections::HashMap;
 use stoffel_vm::core_vm::VirtualMachine;
 
+// Re-export the raw VirtualMachine for advanced use cases
+pub use stoffel_vm::core_vm::VirtualMachine as RawVirtualMachine;
+
+/// Load bytecode into a VirtualMachine instance
+///
+/// This is a shared utility function that deserializes Stoffel bytecode
+/// and registers all functions into the provided VM instance.
+///
+/// # Arguments
+/// * `vm` - Mutable reference to the VirtualMachine to load functions into
+/// * `bytecode` - Compiled Stoffel bytecode bytes (.stfl format)
+///
+/// # Returns
+/// * `Ok(())` - Bytecode loaded successfully
+/// * `Err(_)` - Failed to parse or register bytecode
+///
+/// # Note
+/// This function is used internally by both `VM::run_bytecode()` and `MPCServer::load_bytecode()`
+/// to avoid code duplication while allowing different VM lifecycle management.
+pub(crate) fn load_bytecode_into_vm(vm: &mut VirtualMachine, bytecode: &[u8]) -> Result<()> {
+    use std::io::Cursor;
+    use stoffel_vm_types::compiled_binary::CompiledBinary;
+
+    // Deserialize bytecode into CompiledBinary
+    let mut cursor = Cursor::new(bytecode);
+    let compiled_binary = CompiledBinary::deserialize(&mut cursor)
+        .map_err(|e| Error::RuntimeError(format!("Failed to deserialize bytecode: {:?}", e)))?;
+
+    // Convert to VM functions and register them
+    let vm_functions = compiled_binary.to_vm_functions();
+    for func in vm_functions {
+        vm.register_function(func);
+    }
+
+    Ok(())
+}
+
 /// The Stoffel Virtual Machine runtime
 pub struct VM {
     inner: VirtualMachine,
@@ -62,24 +99,11 @@ impl VM {
 
     /// Run bytecode directly
     pub fn run_bytecode(&self, bytecode: &[u8], entry_function: &str) -> Result<Value> {
-        // Deserialize bytecode into CompiledBinary
-        use std::io::Cursor;
-        use stoffel_vm_types::compiled_binary::CompiledBinary;
-
-        let mut cursor = Cursor::new(bytecode);
-        let compiled_binary = CompiledBinary::deserialize(&mut cursor)
-            .map_err(|e| Error::RuntimeError(format!("Failed to deserialize bytecode: {:?}", e)))?;
-
-        // Convert to VM functions
-        let vm_functions = compiled_binary.to_vm_functions();
-
         // Create a new VM instance (we need mutable access)
         let mut vm = VirtualMachine::new();
 
-        // Register all functions
-        for func in vm_functions {
-            vm.register_function(func);
-        }
+        // Load bytecode into the VM
+        load_bytecode_into_vm(&mut vm, bytecode)?;
 
         // Execute the entry function
         vm.execute(entry_function)

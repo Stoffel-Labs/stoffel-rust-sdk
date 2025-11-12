@@ -1,32 +1,41 @@
-//! MPC Server implementation for server-side computation
+//! Network-based MPC Server implementation for server-side computation
 //!
 //! This module provides the `MPCServer` abstraction for MPC network servers that perform
-//! secure computation on secret-shared data.
+//! secure computation on secret-shared data. Servers are network-based by design and use
+//! QUIC networking to communicate with other servers and clients.
 
 use crate::{Error, Result};
 use crate::client::MPCConfig;
 
 // Re-export key types from mpc-protocols for convenience
-#[cfg(feature = "mpc-local")]
 pub use stoffelmpc_mpc::honeybadger::{
     HoneyBadgerMPCNode,
 };
 
-#[cfg(feature = "mpc-local")]
 pub use stoffelmpc_mpc::common::rbc::rbc::Avid;
 
-/// MPC network server
+/// Network-based MPC server for secure computation
 ///
-/// `MPCServer` represents a single server in the MPC network that performs secure computation
-/// on secret-shared data. It is an abstraction over the underlying MPC protocol that handles:
+/// `MPCServer` represents a network-based server in the MPC network that performs secure computation
+/// on secret-shared data. Servers are network-based by design and use QUIC networking to:
+/// - **Connect to peers**: Establish connections with other MPC servers
+/// - **Receive inputs**: Accept secret shares from clients over the network
+/// - **Collaborate**: Perform secure computation with other servers via network messages
+/// - **Distribute outputs**: Send result shares back to clients
+///
+/// The server handles:
 /// - **Preprocessing**: Generates cryptographic material (beaver triples, random shares) offline
-/// - **Input reception**: Receives secret shares from clients
-/// - **Secure computation**: Executes the Stoffel program on secret-shared data collaboratively with other servers
-/// - **Output distribution**: Sends result shares back to clients
+/// - **Input reception**: Receives secret shares from clients via QUIC
+/// - **Secure computation**: Executes the Stoffel program on secret-shared data collaboratively
+/// - **Output distribution**: Sends result shares back to clients via QUIC
 ///
 /// Multiple servers work together using the MPC protocol to compute on client inputs without
 /// any individual server learning the private inputs. The protocol ensures correctness and
 /// privacy even if up to `threshold` servers are faulty or malicious.
+///
+/// **Note**: Servers are network-based by design. The network manager is created automatically
+/// during server construction and connectivity is established via `add_peer()`, `bind_and_listen()`,
+/// and `connect_to_peers()`.
 ///
 /// # Architecture: Configuration from StoffelRuntime
 ///
@@ -80,13 +89,19 @@ pub struct MPCServer {
     n_triples: usize,
     n_random_shares: usize,
     config: Option<MPCConfig>,
-    #[cfg(feature = "mpc-local")]
     inner: Option<HoneyBadgerMPCNode<ark_bls12_381::Fr, Avid>>,
     // Store received input shares from clients
     input_shares: Vec<stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare<ark_bls12_381::Fr>>,
-    // Network manager for MPC operations (required for all network operations)
-    #[cfg(feature = "mpc-local")]
+    // Network manager (always present - servers are network-based)
     network: std::sync::Arc<stoffelnet::transports::quic::QuicNetworkManager>,
+    // VM instance for executing bytecode on MPC shares
+    //
+    // NOTE: Unlike vm::VM::run_bytecode() which creates a new VM per execution,
+    // MPCServer maintains a persistent VM instance because:
+    // 1. MPC execution requires all servers to execute collaboratively with the same loaded bytecode
+    // 2. The VM must persist between load_bytecode() and execute_function() calls
+    // 3. Bytecode loading and function execution are separate operations in MPC context
+    vm: Option<stoffel_vm::core_vm::VirtualMachine>,
 }
 
 impl MPCServer {
@@ -94,11 +109,15 @@ impl MPCServer {
     // Builder Methods (Internal - used by StoffelRuntime)
     // =========================================================================
 
-    /// Create a new MPC node builder with network manager (internal use only)
+    /// Create a new MPC server with network manager (internal use only)
     ///
-    /// Network manager is created and provided by the StoffelRuntime
-    #[cfg(feature = "mpc-local")]
+    /// Network manager is required - servers are network-based by design.
+    /// The network manager is created and provided by the StoffelRuntime.
     pub(crate) fn new(network: std::sync::Arc<stoffelnet::transports::quic::QuicNetworkManager>) -> Self {
+        // Initialize VM for bytecode execution
+        let mut vm = stoffel_vm::core_vm::VirtualMachine::new();
+        vm.register_standard_library();
+
         Self {
             party_id: None,
             n_triples: 0,
@@ -107,18 +126,7 @@ impl MPCServer {
             inner: None,
             input_shares: Vec::new(),
             network,
-        }
-    }
-
-    /// Create a new MPC node builder without mpc-local feature
-    #[cfg(not(feature = "mpc-local"))]
-    pub(crate) fn new() -> Self {
-        Self {
-            party_id: None,
-            n_triples: 0,
-            n_random_shares: 0,
-            config: None,
-            input_shares: Vec::new(),
+            vm: Some(vm),
         }
     }
 
@@ -167,11 +175,10 @@ impl MPCServer {
             n_triples: self.n_triples,
             n_random_shares: self.n_random_shares,
             config: Some(config),
-            #[cfg(feature = "mpc-local")]
             inner: self.inner,
             input_shares: Vec::new(),
-            #[cfg(feature = "mpc-local")]
             network: self.network,
+            vm: self.vm,
         })
     }
 
@@ -260,36 +267,76 @@ impl MPCServer {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
-    pub async fn run_preprocessing(&mut self) -> Result<()> {
-        use stoffelmpc_mpc::common::{MPCProtocol, PreprocessingMPCProtocol};
+    /// Initialize the HoneyBadger MPC node without running preprocessing
+    ///
+    /// This method must be called before spawning message processors.
+    /// It sets up the MPC node with the configured parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - MPC configuration is not set
+    /// - Node setup fails
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # async fn example() -> Result<()> {
+    /// # let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
+    /// #     .parties(3).threshold(0).build()?;
+    /// let mut server = runtime.server(0)
+    ///     .with_preprocessing(5, 10)
+    ///     .build()?;
+    ///
+    /// // Initialize node before spawning message processors
+    /// server.initialize_node()?;
+    ///
+    /// // Now safe to spawn message processor
+    /// let rx = server.bind_and_listen("127.0.0.1:19200".parse()?).await?;
+    /// let _handle = server.spawn_message_processor(rx, 0);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn initialize_node(&mut self) -> Result<()> {
+        use stoffelmpc_mpc::common::MPCProtocol;
         use stoffelmpc_mpc::honeybadger::HoneyBadgerMPCNodeOpts;
+
+        // Only initialize if not already done
+        if self.inner.is_some() {
+            return Ok(());
+        }
+
+        let config = self.config.as_ref()
+            .ok_or_else(|| Error::InvalidInput("MPC config not set".to_string()))?;
+        let party_id = self.party_id();
+
+        let opts = HoneyBadgerMPCNodeOpts {
+            n_parties: config.n_parties,
+            threshold: config.threshold,
+            n_triples: self.n_triples,
+            n_random_shares: self.n_random_shares,
+            instance_id: config.instance_id,
+        };
+
+        // Create the HoneyBadger MPC node
+        let node = <HoneyBadgerMPCNode<ark_bls12_381::Fr, Avid> as MPCProtocol<
+            ark_bls12_381::Fr,
+            stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare<ark_bls12_381::Fr>,
+            stoffelnet::transports::quic::QuicNetworkManager,
+        >>::setup(party_id, opts)
+            .map_err(|e| Error::RuntimeError(format!("Failed to setup HoneyBadgerMPCNode: {:?}", e)))?;
+
+        self.inner = Some(node);
+        Ok(())
+    }
+
+    pub async fn run_preprocessing(&mut self) -> Result<()> {
+        use stoffelmpc_mpc::common::PreprocessingMPCProtocol;
         use ark_std::rand::SeedableRng;
 
-        // Initialize HoneyBadgerMPCNode if not already done
-        if self.inner.is_none() {
-            let config = self.config.as_ref()
-                .ok_or_else(|| Error::InvalidInput("MPC config not set".to_string()))?;
-            let party_id = self.party_id();
-
-            let opts = HoneyBadgerMPCNodeOpts {
-                n_parties: config.n_parties,
-                threshold: config.threshold,
-                n_triples: self.n_triples,
-                n_random_shares: self.n_random_shares,
-                instance_id: config.instance_id,
-            };
-
-            // Create the HoneyBadger MPC node
-            let node = <HoneyBadgerMPCNode<ark_bls12_381::Fr, Avid> as MPCProtocol<
-                ark_bls12_381::Fr,
-                stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare<ark_bls12_381::Fr>,
-                stoffelnet::transports::quic::QuicNetworkManager,
-            >>::setup(party_id, opts)
-                .map_err(|e| Error::RuntimeError(format!("Failed to setup HoneyBadgerMPCNode: {:?}", e)))?;
-
-            self.inner = Some(node);
-        }
+        // Initialize node if not already done
+        self.initialize_node()?;
 
         // Run preprocessing using the attached network
         let mut rng = ark_std::rand::rngs::StdRng::from_entropy();
@@ -331,7 +378,6 @@ impl MPCServer {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
     pub async fn receive_client_inputs(&mut self, client_id: stoffelnet::network_utils::ClientId, num_inputs: usize) -> Result<()> {
         // Ensure the MPC node is initialized
         let node = self.inner.as_mut()
@@ -356,78 +402,97 @@ impl MPCServer {
         Ok(())
     }
 
-    /// Execute the Stoffel program on secret-shared data
+    /// Execute the Stoffel program on secret-shared data (collaborative MPC)
     ///
-    /// This method runs the secure computation phase where nodes collaboratively
-    /// execute the compiled Stoffel program on the secret-shared inputs without
-    /// revealing them. Uses the preprocessing material (beaver triples) for
-    /// secure multiplication operations.
+    /// **IMPORTANT**: This method must be called simultaneously on ALL servers in the MPC network!
+    ///
+    /// MPC execution requires coordination between all parties:
+    /// 1. All servers load the same bytecode
+    /// 2. All servers execute the same function at the same time
+    /// 3. When the VM encounters MPC operations (e.g., MUL on shares), all servers
+    ///    participate in the protocol collaboratively via network communication
+    /// 4. Each server gets its own share of the result
+    ///
+    /// # Collaborative Execution Pattern
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # use tokio;
+    /// # async fn example() -> Result<()> {
+    /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
+    ///     .parties(3)
+    ///     .threshold(0)
+    ///     .build()?;
+    ///
+    /// let bytecode = runtime.program().bytecode();
+    /// let mut servers = vec![
+    ///     runtime.server(0).build()?,
+    ///     runtime.server(1).build()?,
+    ///     runtime.server(2).build()?,
+    /// ];
+    ///
+    /// // All servers must execute simultaneously
+    /// let handles: Vec<_> = servers.iter_mut().map(|server| {
+    ///     let bc = bytecode.clone();
+    ///     tokio::spawn(async move {
+    ///         server.compute(&bc, "main").await
+    ///     })
+    /// }).collect();
+    ///
+    /// let results = futures::future::join_all(handles).await;
+    /// # Ok(())
+    /// # }
+    /// ```
     ///
     /// # Arguments
     ///
-    /// * `bytecode` - The compiled Stoffel program bytecode to execute
+    /// * `bytecode` - The compiled Stoffel program bytecode to execute (.stfl format)
+    /// * `function_name` - The name of the function to execute (typically "main")
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Value)` containing this server's share of the result:
+    /// - For non-MPC programs: A clear value (e.g., `Value::I64(42)`)
+    /// - For MPC programs: A secret share (e.g., `Value::Share(...)`)
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - The bytecode is invalid or incompatible
-    /// - Communication with other nodes fails during computation
-    /// - The MPC protocol encounters an error
+    /// - The specified function doesn't exist in the bytecode
+    /// - The MPC node is not initialized
+    /// - VM execution fails
+    /// - Network communication with other servers fails during MPC operations
     ///
-    /// # Example
+    /// # Note on MPC Operations
     ///
-    /// ```rust,no_run
-    /// # use stoffel_rust_sdk::prelude::*;
-    /// # async fn example() -> Result<()> {
-    /// # let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-    /// #     .parties(5)
-    /// #     .threshold(1)
-    /// #     .build()?;
-    /// # let mut node = runtime.node(0).build()?;
-    /// # node.run_preprocessing().await?;
-    /// # node.receive_client_inputs().await?;
-    /// // Execute program on secret-shared data
-    /// let bytecode = runtime.program().bytecode();
-    /// node.compute(bytecode).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "mpc-local")]
-    pub async fn compute(&mut self, client_id: stoffelnet::network_utils::ClientId) -> Result<()> {
-        use stoffelmpc_mpc::common::MPCProtocol;
-        use stoffelmpc_mpc::honeybadger::{ProtocolType, SessionId};
-
+    /// The VM will automatically use MPC protocols when operating on secret-shared values.
+    /// For example, when the VM executes `MUL` on two shares, it triggers the secure
+    /// multiplication protocol, requiring all servers to participate via network messages.
+    ///
+    /// See `external/stoffel-vm/crates/stoffel-vm/src/tests/vm_mesh_integration.rs` for
+    /// a complete example of collaborative VM execution.
+    pub async fn compute(&mut self, bytecode: &[u8], function_name: &str) -> Result<stoffel_vm_types::core_types::Value> {
         // Ensure the MPC node is initialized
-        let node = self.inner.as_mut()
+        let _node = self.inner.as_ref()
             .ok_or_else(|| Error::RuntimeError(
                 "MPC node not initialized. Call run_preprocessing() first.".to_string()
             ))?;
 
-        // Run multiplication using the network
-        // Note: This is a simplified implementation that runs a single multiplication
-        // Full VM integration would parse bytecode and execute all operations
-        let config = self.config.as_ref()
-            .ok_or_else(|| Error::RuntimeError("Config not set".to_string()))?;
+        // Load bytecode into the VM
+        self.load_bytecode(bytecode)?;
 
-        // Get input shares from storage (assumes 2 inputs for multiplication)
-        let (x_shares, y_shares) = {
-            let input_store = node.preprocess.input.input_shares.lock().await;
-            let inputs = input_store.get(&client_id)
-                .ok_or_else(|| Error::RuntimeError(format!("No input shares found for client {}", client_id)))?;
+        tracing::info!("Server {} executing function '{}' from bytecode", self.party_id(), function_name);
+        tracing::warn!("NOTE: For MPC operations, ALL servers must call compute() simultaneously!");
 
-            if inputs.len() < 2 {
-                return Err(Error::InvalidInput("Need at least 2 input shares for multiplication".to_string()));
-            }
+        // Execute the specified function
+        // When the VM encounters MPC operations on shares, it will automatically
+        // coordinate with other servers via the MPC engine and network
+        let result = self.execute_function(function_name)?;
 
-            (vec![inputs[0].clone()], vec![inputs[1].clone()])
-        };
+        tracing::info!("Server {} completed execution of '{}'", self.party_id(), function_name);
 
-        // Run MPC multiplication
-        node.mul(x_shares, y_shares, self.network.clone())
-            .await
-            .map_err(|e| Error::RuntimeError(format!("Multiplication failed: {:?}", e)))?;
-
-        Ok(())
+        Ok(result)
     }
 
     /// Send output shares back to clients
@@ -459,7 +524,6 @@ impl MPCServer {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "mpc-local")]
     pub async fn send_outputs(&mut self, output_client_id: stoffelnet::network_utils::ClientId, session_id: stoffelmpc_mpc::honeybadger::SessionId) -> Result<()> {
         // Ensure the MPC node is initialized
         let node = self.inner.as_ref()
@@ -492,40 +556,173 @@ impl MPCServer {
         }
     }
 
+    /// Process a received message from the network
+    ///
+    /// This method handles incoming MPC protocol messages from other servers.
+    /// It should be called in a message processing loop for each received message.
+    ///
+    /// # Arguments
+    /// * `message` - Raw message bytes received from the network
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The MPC node is not initialized
+    /// - Message processing fails
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # async fn example() -> Result<()> {
+    /// # let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?.parties(3).build()?;
+    /// # let mut server = runtime.server(0).build()?;
+    /// # let rx = server.bind_and_listen("127.0.0.1:19300".parse().unwrap()).await?;
+    /// // Spawn a task to process incoming messages
+    /// tokio::spawn(async move {
+    ///     let mut rx = rx;
+    ///     while let Some(msg) = rx.recv().await {
+    ///         if let Err(e) = server.process_message(msg).await {
+    ///             eprintln!("Failed to process message: {:?}", e);
+    ///         }
+    ///     }
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn process_message(&mut self, message: Vec<u8>) -> Result<()> {
+        use stoffelmpc_mpc::common::MPCProtocol;
+
+        // Ensure the MPC node is initialized
+        let node = self.inner.as_mut()
+            .ok_or_else(|| Error::RuntimeError(
+                "MPC node not initialized. Call run_preprocessing() first.".to_string()
+            ))?;
+
+        // Process the message using the MPC protocol
+        node.process(message, self.network.clone())
+            .await
+            .map_err(|e| Error::RuntimeError(format!("Failed to process message: {:?}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get a mutable reference to the underlying HoneyBadger MPC node (advanced use)
+    ///
+    /// This method exposes the underlying MPC node for advanced operations that are not
+    /// yet wrapped in the SDK API. Use with caution as direct manipulation can bypass
+    /// SDK invariants.
+    ///
+    /// # Returns
+    /// * `Some(&mut HoneyBadgerMPCNode)` - Mutable reference to the node if initialized
+    /// * `None` - Node has not been initialized yet (call `run_preprocessing()` first)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # async fn example() -> Result<()> {
+    /// # let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?.parties(3).build()?;
+    /// # let mut server = runtime.server(0).with_preprocessing(3, 8).build()?;
+    /// # server.run_preprocessing().await?;
+    /// // Access underlying node for advanced operations
+    /// if let Some(node) = server.node_mut() {
+    ///     // Perform advanced operations on the node
+    ///     let preprocessing_len = node.preprocessing_material.lock().await.len();
+    ///     println!("Preprocessing material: {:?}", preprocessing_len);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn node_mut(&mut self) -> Option<&mut HoneyBadgerMPCNode<ark_bls12_381::Fr, Avid>> {
+        self.inner.as_mut()
+    }
+
+    /// Get the network manager for this server
+    ///
+    /// This provides access to the underlying QUIC network manager for advanced
+    /// networking operations.
+    ///
+    /// # Returns
+    /// Arc-wrapped reference to the QuicNetworkManager
+    pub fn network(&self) -> std::sync::Arc<stoffelnet::transports::quic::QuicNetworkManager> {
+        self.network.clone()
+    }
+
     // =========================================================================
-    // Stubs for builds without mpc-local feature
+    // Bytecode Execution Methods
     // =========================================================================
 
-    /// Run preprocessing (non-async stub for non-mpc-local builds)
-    #[cfg(not(feature = "mpc-local"))]
-    pub fn run_preprocessing(&mut self) -> Result<()> {
-        Err(Error::RuntimeError(
-            "run_preprocessing() requires the 'mpc-local' feature to be enabled".to_string()
-        ))
+    /// Load bytecode from bytes and register it with the VM
+    ///
+    /// This method parses compiled Stoffel bytecode and registers all functions
+    /// with the server's VM instance for execution.
+    ///
+    /// # Arguments
+    /// * `bytecode` - Compiled Stoffel bytecode bytes (.stfl format)
+    ///
+    /// # Returns
+    /// * `Ok(())` - Bytecode loaded successfully
+    /// * `Err(_)` - Failed to parse or register bytecode
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # fn main() -> Result<()> {
+    /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
+    ///     .parties(3)
+    ///     .threshold(0)
+    ///     .build()?;
+    ///
+    /// let mut server = runtime.server(0).build()?;
+    /// let bytecode = runtime.program().bytecode();
+    /// server.load_bytecode(bytecode)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn load_bytecode(&mut self, bytecode: &[u8]) -> Result<()> {
+        // Get mutable reference to VM
+        let vm = self.vm.as_mut()
+            .ok_or_else(|| Error::RuntimeError("VM not initialized".to_string()))?;
+
+        // Use the shared bytecode loading utility from vm module
+        crate::vm::load_bytecode_into_vm(vm, bytecode)?;
+
+        tracing::info!("Server {} loaded bytecode functions", self.party_id());
+        Ok(())
     }
 
-    /// Receive client inputs (non-async stub for non-mpc-local builds)
-    #[cfg(not(feature = "mpc-local"))]
-    pub fn receive_client_inputs(&mut self) -> Result<()> {
-        Err(Error::RuntimeError(
-            "receive_client_inputs() requires the 'mpc-local' feature to be enabled".to_string()
-        ))
-    }
+    /// Execute a function from the loaded bytecode on MPC shares
+    ///
+    /// This method executes a specific function from the loaded bytecode. The function
+    /// should operate on secret-shared values loaded from input shares.
+    ///
+    /// # Arguments
+    /// * `function_name` - Name of the function to execute (typically "main")
+    ///
+    /// # Returns
+    /// * `Ok(Value)` - Result of the computation (typically a secret-shared value)
+    /// * `Err(_)` - Execution failed
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # fn main() -> Result<()> {
+    /// # let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?.build()?;
+    /// # let mut server = runtime.server(0).build()?;
+    /// # let bytecode = runtime.program().bytecode();
+    /// # server.load_bytecode(bytecode)?;
+    /// // Execute the main function
+    /// let result = server.execute_function("main")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn execute_function(&mut self, function_name: &str) -> Result<stoffel_vm_types::core_types::Value> {
+        let vm = self.vm.as_mut()
+            .ok_or_else(|| Error::RuntimeError("VM not initialized".to_string()))?;
 
-    /// Execute computation (non-async stub for non-mpc-local builds)
-    #[cfg(not(feature = "mpc-local"))]
-    pub fn compute(&mut self, _bytecode: &[u8]) -> Result<()> {
-        Err(Error::RuntimeError(
-            "compute() requires the 'mpc-local' feature to be enabled".to_string()
-        ))
-    }
-
-    /// Send outputs (non-async stub for non-mpc-local builds)
-    #[cfg(not(feature = "mpc-local"))]
-    pub fn send_outputs(&mut self) -> Result<()> {
-        Err(Error::RuntimeError(
-            "send_outputs() requires the 'mpc-local' feature to be enabled".to_string()
-        ))
+        vm.execute(function_name)
+            .map_err(|e| Error::RuntimeError(format!("VM execution failed: {}", e)))
     }
 
     /// Receive input shares from a client
@@ -587,6 +784,304 @@ impl MPCServer {
     /// Get a reference to the stored input shares
     pub fn input_shares(&self) -> &[stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare<ark_bls12_381::Fr>] {
         &self.input_shares
+    }
+
+    // =========================================================================
+    // Networking Methods (Server Lifecycle Management)
+    // =========================================================================
+
+    /// Add a peer server to the network topology
+    ///
+    /// This method registers another server in the MPC network. Call this for each
+    /// peer server before calling `connect_to_peers()`.
+    ///
+    /// # Arguments
+    /// * `peer_id` - The party ID of the peer server (0 to n-1)
+    /// * `address` - The network address where the peer will listen
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # fn main() -> Result<()> {
+    /// # let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?.parties(3).build()?;
+    /// let mut server = runtime.server(0).build()?;
+    ///
+    /// // Add peer servers
+    /// server.add_peer(1, "127.0.0.1:8001".parse().unwrap());
+    /// server.add_peer(2, "127.0.0.1:8002".parse().unwrap());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_peer(&mut self, peer_id: usize, address: std::net::SocketAddr) {
+        let mut network = std::sync::Arc::get_mut(&mut self.network)
+            .expect("Network should be exclusively owned during setup");
+
+        network.add_node_with_party_id(peer_id, address);
+    }
+
+    /// Start the QUIC listener and begin accepting connections
+    ///
+    /// This method binds to the specified address and starts accepting incoming
+    /// connections from peers and clients. It spawns background tasks to handle
+    /// the accept loop and message routing.
+    ///
+    /// Returns a channel receiver for incoming MPC protocol messages.
+    ///
+    /// # Arguments
+    /// * `bind_address` - The local address to bind to
+    ///
+    /// # Returns
+    /// A `Receiver<Vec<u8>>` for receiving MPC protocol messages from the network
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # async fn example() -> Result<()> {
+    /// # let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?.parties(3).build()?;
+    /// let mut server = runtime.server(0).build()?;
+    ///
+    /// // Start listening for connections
+    /// let mut rx = server.bind_and_listen("127.0.0.1:8000".parse().unwrap()).await?;
+    ///
+    /// // Process incoming messages
+    /// while let Some(msg) = rx.recv().await {
+    ///     server.process_message(msg).await?;
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn bind_and_listen(
+        &mut self,
+        bind_address: std::net::SocketAddr,
+    ) -> Result<tokio::sync::mpsc::Receiver<Vec<u8>>> {
+        use stoffelnet::transports::quic::NetworkManager;
+
+        // Create channel for routing messages
+        let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1000);
+
+        // Clone network manager for the accept task
+        let network_clone = self.network.clone();
+
+        // Clone for calling listen (needs &mut)
+        let mut network_for_listen = self.network.as_ref().clone();
+
+        // Start listening
+        network_for_listen
+            .listen(bind_address)
+            .await
+            .map_err(|e| Error::RuntimeError(format!("Failed to bind to {}: {}", bind_address, e)))?;
+
+        // Spawn accept loop
+        tokio::spawn(async move {
+            let mut acceptor = (*network_clone).clone();
+            loop {
+                match acceptor.accept().await {
+                    Ok(connection) => {
+                        let tx_clone = tx.clone();
+
+                        // Spawn task to handle this connection
+                        tokio::spawn(async move {
+                            loop {
+                                match connection.receive().await {
+                                    Ok(data) => {
+                                        // Filter QUIC handshake messages
+                                        if data.starts_with(b"ROLE:") {
+                                            continue;
+                                        }
+
+                                        // Check for magic byte (0x56535453 "SERV" in little-endian)
+                                        if data.len() >= 4 {
+                                            let magic = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                                            if magic == 0x56535453 {
+                                                continue;
+                                            }
+                                        }
+
+                                        // Send to message channel
+                                        if tx_clone.send(data).await.is_err() {
+                                            break; // Channel closed
+                                        }
+                                    }
+                                    Err(_) => break, // Connection closed
+                                }
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("Accept error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok(rx)
+    }
+
+    /// Spawn a background task to process incoming MPC protocol messages
+    ///
+    /// This method spawns an async task that continuously processes messages from the
+    /// given receiver channel. Each message is passed to the underlying HoneyBadgerMPCNode
+    /// for processing. This is required for collaborative MPC protocols like preprocessing
+    /// and secure computation to function correctly.
+    ///
+    /// **Important**: You must call `initialize_node()` BEFORE calling this method.
+    /// The node must be initialized so the message processor has access to it.
+    ///
+    /// # Arguments
+    /// * `receiver` - Message receiver channel from `bind_and_listen()`
+    /// * `party_id` - This server's party ID (for logging)
+    ///
+    /// # Returns
+    /// A `JoinHandle` for the spawned task. You can use this to monitor or cancel the task.
+    ///
+    /// # Panics
+    /// Panics if the MPC node has not been initialized via `initialize_node()`.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # async fn example() -> Result<()> {
+    /// # let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?.parties(3).build()?;
+    /// let mut server = runtime.server(0).build()?;
+    ///
+    /// // IMPORTANT: Initialize node first
+    /// server.initialize_node()?;
+    ///
+    /// // Bind and listen
+    /// let rx = server.bind_and_listen("127.0.0.1:8000".parse().unwrap()).await?;
+    ///
+    /// // Spawn message processor (required for MPC protocols to work)
+    /// let processor_handle = server.spawn_message_processor(rx, 0);
+    ///
+    /// // Now you can run MPC protocols
+    /// server.run_preprocessing().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn spawn_message_processor(
+        &mut self,
+        mut receiver: tokio::sync::mpsc::Receiver<Vec<u8>>,
+        party_id: usize,
+    ) -> tokio::task::JoinHandle<()> {
+        use stoffelmpc_mpc::common::MPCProtocol;
+
+        // The node MUST be initialized before spawning the processor
+        // This ensures the cloned node shares state via Arc<Mutex<>>
+        let mut node = self.inner.clone()
+            .expect("MPC node must be initialized before spawning message processor. Call initialize_node() first.");
+        let network = self.network.clone();
+
+        tokio::spawn(async move {
+            while let Some(raw_msg) = receiver.recv().await {
+                // Process message directly on the cloned node
+                // HoneyBadgerMPCNode uses Arc<Mutex<>> internally, so cloning shares state
+                if let Err(e) = node.process(raw_msg, network.clone()).await {
+                    eprintln!("Server {} failed to process message: {:?}", party_id, e);
+                }
+            }
+        })
+    }
+
+    /// Connect to all registered peer servers
+    ///
+    /// This method establishes QUIC connections to all peers that were registered
+    /// via `add_peer()`. It uses exponential backoff for retries.
+    ///
+    /// Returns a vector of message receivers, one for each peer connection.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # async fn example() -> Result<()> {
+    /// # let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?.parties(3).build()?;
+    /// let mut server = runtime.server(0).build()?;
+    ///
+    /// server.add_peer(1, "127.0.0.1:8001".parse().unwrap());
+    /// server.add_peer(2, "127.0.0.1:8002".parse().unwrap());
+    ///
+    /// // Connect to all peers
+    /// let peer_channels = server.connect_to_peers().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn connect_to_peers(&self) -> Result<Vec<tokio::sync::mpsc::Receiver<Vec<u8>>>> {
+        use stoffelnet::transports::quic::NetworkManager;
+        use stoffelnet::network_utils::Network;
+
+        let mut receivers = Vec::new();
+        let party_id = self.party_id();
+
+        // Get list of peers to connect to
+        let peers: Vec<_> = self.network.parties()
+            .iter()
+            .filter_map(|p| {
+                // Convert UUID back to party_id
+                let peer_party_id = p.uuid().as_u128() as usize;
+                if peer_party_id != party_id {
+                    Some((peer_party_id, p.address()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Clone the network manager once for connecting
+        let mut dialer = self.network.as_ref().clone();
+
+        for (peer_id, address) in peers {
+            let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1000);
+            let mut dialer_for_peer = dialer.clone();
+
+            // Spawn connection task with retry logic
+            tokio::spawn(async move {
+                const MAX_RETRIES: usize = 5;
+                const INITIAL_BACKOFF_MS: u64 = 100;
+
+                for attempt in 0..MAX_RETRIES {
+                    match dialer_for_peer.connect_as_server(address, peer_id).await {
+                        Ok(connection) => {
+                            // Connection successful, start receiving messages
+                            loop {
+                                match connection.receive().await {
+                                    Ok(data) => {
+                                        // Filter handshake messages
+                                        if data.starts_with(b"ROLE:") {
+                                            continue;
+                                        }
+
+                                        if data.len() >= 4 {
+                                            let magic = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                                            if magic == 0x56535453 {
+                                                continue;
+                                            }
+                                        }
+
+                                        if tx.send(data).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                            break;
+                        }
+                        Err(e) => {
+                            if attempt < MAX_RETRIES - 1 {
+                                let backoff = INITIAL_BACKOFF_MS * 2u64.pow(attempt as u32);
+                                tokio::time::sleep(tokio::time::Duration::from_millis(backoff)).await;
+                            } else {
+                                eprintln!("Failed to connect to peer {} after {} attempts: {}", peer_id, MAX_RETRIES, e);
+                            }
+                        }
+                    }
+                }
+            });
+
+            receivers.push(rx);
+        }
+
+        Ok(receivers)
     }
 }
 
@@ -668,7 +1163,10 @@ impl MPCServerBuilder {
         self
     }
 
-    /// Build the MPC server
+    /// Build the MPC server with network manager
+    ///
+    /// Creates a network-based MPC server. The network manager is created automatically
+    /// and initialized with the server's party ID.
     pub fn build(self) -> crate::Result<MPCServer> {
         // Use defaults if not set
         let n_triples = self.n_triples.unwrap_or(2 * self.threshold + 1);
@@ -682,22 +1180,17 @@ impl MPCServerBuilder {
             protocol_type: self.protocol_type,
         };
 
-        // Create network manager for this party (runtime-managed abstraction)
-        #[cfg(feature = "mpc-local")]
+        // Create network manager for this party - servers are always network-based
         let network = std::sync::Arc::new(
             stoffelnet::transports::quic::QuicNetworkManager::with_node_id(self.party_id)
         );
 
-        #[cfg(feature = "mpc-local")]
-        let server = MPCServer::new(network);
-
-        #[cfg(not(feature = "mpc-local"))]
-        let server = MPCServer::new();
-
-        server
+        let server = MPCServer::new(network)
             .with_party_id(self.party_id)
             .with_config(config)
             .with_preprocessing(n_triples, n_random_shares)
-            .build()
+            .build()?;
+
+        Ok(server)
     }
 }

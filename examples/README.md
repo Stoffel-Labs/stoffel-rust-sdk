@@ -1,269 +1,201 @@
 # Stoffel SDK Examples
 
-This directory contains examples demonstrating the Stoffel SDK.
+## Current Status
 
-## ⭐ **START HERE: Working MPC Example**
+The Stoffel Rust SDK provides:
+- ✅ **Stoffel-Lang compilation** - Compile Stoffel programs to bytecode
+- ✅ **VM execution** - Run bytecode on the Stoffel VM
+- ✅ **Bytecode parsing and execution** - Servers can load and execute compiled bytecode
+- ✅ **MPC types and configuration** - Configure MPC parameters (parties, threshold, protocols)
+- ✅ **Client-Server Architecture** - Core SDK APIs (client.rs, server.rs, session.rs)
 
-### `quick_start_local_network_real.rs` - **Complete Working Example**
+## Examples
 
-**Run:** `cargo run --example quick_start_local_network_real --features mpc-local`
+### complete_mpc_workflow.rs
 
-**This is the ONLY fully functional example that actually executes MPC protocols.**
+**⭐ START HERE** - Demonstrates a complete end-to-end MPC workflow:
 
-It demonstrates:
-- ✅ **Real QUIC networking** with listeners and connections
-- ✅ **Actual MPC execution** (all 4 phases)
-- ✅ **Message handling** with async tasks
-- ✅ **HoneyBadger protocol** in action
-- ✅ **Complete infrastructure** setup
-
-**What it does:**
-1. Creates 5 HoneyBadger QUIC servers
-2. Sets up network listeners and connections
-3. Runs preprocessing (Beaver triple generation)
-4. Distributes client inputs via secret sharing
-5. Executes secure multiplication: 10 × 20
-6. Reconstructs and displays the result
-
-**When to use:** Study this example to understand what's required for production MPC deployments.
-
----
-
-## 📚 SDK API Examples
-
-These examples demonstrate the SDK's high-level API but DO NOT execute the full MPC protocol.
-
-### 1. `stoffel_sdk_demo.rs` - Comprehensive API Tour
-
-**Run:** `cargo run --example stoffel_sdk_demo`
-
-A complete tour of the SDK's capabilities in 6 parts:
-1. Program compilation
-2. Local VM execution
-3. MPC configuration (parties, threshold)
-4. Creating all 3 participant types (Server, Client, Node)
-5. Secret sharing and distribution
-6. Protocol configuration
-
-**Best for:** Learning the complete SDK API systematically.
-
----
-
-### 2. `quick_start_network.rs` - Quick API Demo
-
-**Run:** `cargo run --example quick_start_network --features mpc-local`
-
-The simplest introduction to the SDK's MPC API.
-
-Shows:
-- Compiling Stoffel programs
-- Creating MPC runtime with configuration
-- Building nodes with the fluent API
-- Automatic network manager creation
-
-**Best for:** First-time users wanting a quick overview.
-
----
-
-### 3. `sdk_api_demo.rs` - Execution Attempt
-
-**Run:** `cargo run --example sdk_api_demo --features mpc-local`
-
-Demonstrates the SDK API and attempts to call `node.run()`.
-
-**Important:** This example will likely fail because it creates network
-managers but doesn't set up the required QUIC infrastructure (listeners,
-connections, message handlers).
-
-**Purpose:** Shows what the SDK provides and what YOU need to add for
-production deployments.
-
----
-
-## 🔑 Key Understanding
-
-### The SDK Provides:
-
-**High-Level API:**
-- ✅ `MPCNode`, `MPCServer`, `MPCClient` types
-- ✅ Builder patterns (`runtime.node()`, `runtime.server()`, etc.)
-- ✅ Automatic `QuicNetworkManager` creation
-- ✅ `node.run()` method for protocol execution
-
-**Network Infrastructure Helpers** (via `network_helpers` module):
-- ✅ `setup_honeybadger_quic_network()` - Complete network setup in one call
-- ✅ `setup_honeybadger_quic_clients()` - Client setup with connections
-- ✅ `HoneyBadgerQuicServer` - Servers with QUIC listeners
-- ✅ `HoneyBadgerQuicClient` - Clients with connection management
-- ✅ Automatic message handler spawning
-- ✅ Full network topology management
-
-**Example Usage:**
-```rust
-use stoffel_rust_sdk::prelude::*;
-use ark_bls12_381::Fr;
-
-// One function call sets up entire network!
-let (servers, receivers) = setup_honeybadger_quic_network::<Fr>(
-    5, 1, 3, 8, 42, 19200,
-    HoneyBadgerQuicConfig::default(),
-).await?;
-```
-
-See `quick_start_local_network_real.rs` for complete example.
-
-### Example Comparison
-
-| Example | API Demo | Actual Execution | Complexity | Run Time |
-|---------|----------|------------------|------------|----------|
-| `stoffel_sdk_demo.rs` | ✅ | ❌ | ⭐ Beginner | ~1 sec |
-| `quick_start_network.rs` | ✅ | ❌ | ⭐ Beginner | ~1 sec |
-| `sdk_api_demo.rs` | ✅ | ⚠️ Attempts | ⭐⭐ Intermediate | ~2 sec |
-| **`quick_start_local_network_real.rs`** | ✅ | **✅** | **⭐⭐⭐ Advanced** | **~5 sec** |
-
----
-
-## 🚀 Learning Path
-
-**Recommended order:**
-
-1. **`stoffel_sdk_demo.rs`** → Learn the SDK API
-   ```bash
-   cargo run --example stoffel_sdk_demo
-   ```
-
-2. **`quick_start_network.rs`** → See automatic networking API
-   ```bash
-   cargo run --example quick_start_network --features mpc-local
-   ```
-
-3. **`quick_start_local_network_real.rs`** → Study the working implementation
-   ```bash
-   cargo run --example quick_start_local_network_real --features mpc-local
-   ```
-
----
-
-## 🏗️ Building and Running
-
-### Basic Examples (No Network)
 ```bash
-cargo run --example stoffel_sdk_demo
+cargo run --example complete_mpc_workflow
 ```
 
-### Network Examples (Requires `mpc-local` Feature)
+This example shows:
+- ✅ Complete workflow from program compilation to secret share distribution
+- ✅ Stoffel program compilation with MPC configuration
+- ✅ MPC server creation and QUIC network setup
+- ✅ Full mesh peer-to-peer connectivity
+- ✅ Client creation with private inputs
+- ✅ Secret share generation (robust shares with error correction)
+- ✅ Secret share distribution across all servers
+
+**What It Demonstrates:**
+- Real end-to-end MPC setup using SDK APIs
+- Security properties: No server learns private inputs
+- Production-ready networking on localhost (127.0.0.1)
+- Clear documentation of what works and what's in progress
+
+### simple_mpc_network.rs
+
+Demonstrates the SDK's network-based client-server architecture running on localhost:
+
 ```bash
-cargo run --example quick_start_network --features mpc-local
-cargo run --example quick_start_local_network_real --features mpc-local
-cargo run --example sdk_api_demo --features mpc-local
+cargo run --example simple_mpc_network
 ```
 
-### Build All Examples
+This example shows:
+- ✅ Compiling Stoffel programs with the SDK
+- ✅ Creating MPC servers with network connectivity
+- ✅ Creating network-based MPC clients
+- ✅ Establishing QUIC connections between clients and servers
+- ✅ Distributing secret-shared inputs over the network
+
+**Key Concepts:**
+- **Real QUIC networking on localhost** - All parties run on 127.0.0.1 with different ports
+- **Local share generation** - Clients generate secret shares of private inputs
+- **Network distribution** - Shares are sent to servers over QUIC connections
+- **Production-ready** - For distributed deployment, just change IPs from 127.0.0.1 to actual machine IPs
+
+**Note:** This example demonstrates networking setup. Full MPC execution requires
+additional message routing (see StoffelVM integration tests for complete workflow).
+
+### bytecode_execution.rs
+
+Demonstrates bytecode parsing and execution in MPC servers:
+
 ```bash
-cargo build --examples --features mpc-local
+cargo run --example bytecode_execution
 ```
 
----
+This example shows:
+- ✅ Compiling Stoffel programs to bytecode
+- ✅ Extracting bytecode from compiled programs
+- ✅ Loading bytecode into server VMs
+- ✅ Executing functions from loaded bytecode
+- ✅ Integration of StoffelVM with MPCServer
 
-## 📖 Understanding MPC Execution
+**Key Concepts:**
+- **Embedded VMs** - Each server has its own VirtualMachine instance
+- **Bytecode loading** - Servers parse `.stfl` bytecode format
+- **Function execution** - VMs execute named functions from bytecode
+- **Transparent execution** - Same code works for clear and secret-shared values
 
-### Complete MPC Workflow (from `quick_start_local_network_real.rs`)
+### mpc_computation.rs
 
-1. **Network Setup**
-   - Create QUIC network managers
-   - Bind listeners to ports
-   - Spawn accept() loops
-   - Establish peer connections
+Shows the SDK's compilation and configuration API without networking:
 
-2. **Preprocessing Phase**
-   - Generate Beaver triples
-   - Create random shares
-   - Distribute preprocessing material
+```bash
+cargo run --example mpc_computation
+```
 
-3. **Input Sharing Phase**
-   - Client secret-shares inputs
-   - Distribute shares to servers
-   - Servers store received shares
+## For Complete MPC Network Execution
 
-4. **Computation Phase**
-   - Execute Stoffel program on shares
-   - Use Beaver triples for multiplication
-   - Maintain security throughout
+The SDK provides the core client-server architecture (client.rs, server.rs, session.rs) as the primary developer-facing APIs. However, full end-to-end MPC network execution with QUIC connections requires integration work that is currently demonstrated in StoffelVM's integration tests.
 
-5. **Output Reconstruction**
-   - Collect output shares
-   - Use robust reconstruction
-   - Return final result to client
+**StoffelVM Integration Tests** (Reference Implementation):
+```
+external/stoffel-vm/crates/stoffel-vm/src/tests/mpc_multiplication_integration.rs
+```
 
----
+**To run the complete MPC workflow:**
+```bash
+cd external/stoffel-vm
+cargo test --package stoffel-vm --lib tests::mpc_multiplication_integration -- --nocapture --test-threads=1
+```
 
-## ❓ FAQ
+This test demonstrates:
+- ✅ QUIC network setup with `setup_honeybadger_quic_network()`
+- ✅ Server startup and peer connections
+- ✅ Preprocessing (Beaver triple generation)
+- ✅ Input sharing from clients
+- ✅ Secure multiplication
+- ✅ Output reconstruction
 
-### Q: Why don't the SDK API examples run actual MPC?
+**Note:** Future SDK versions will integrate this networking functionality directly into the MPCServer and MPCClient APIs for a more seamless developer experience.
 
-**A:** The API examples (`stoffel_sdk_demo.rs`, `quick_start_network.rs`) are designed
-to teach the SDK's API surface without requiring complex network setup. They show you
-how to use the builder patterns and create MPC participants.
+## SDK Roadmap
 
-For actual execution, use the `network_helpers` module with `setup_honeybadger_quic_network()`.
+### Currently Available
 
-### Q: How do I build a production MPC application?
-
-**A:** Use the SDK's `network_helpers` module! It provides everything you need:
+The SDK provides high-level APIs for:
 
 ```rust
 use stoffel_rust_sdk::prelude::*;
-use ark_bls12_381::Fr;
 
-// Setup complete network infrastructure:
-let (servers, receivers) = setup_honeybadger_quic_network::<Fr>(
-    n_parties, threshold, n_triples, n_random_shares,
-    instance_id, base_port, config,
-).await?;
+// 1. Compile Stoffel programs
+let runtime = Stoffel::compile(source)?
+    .parties(5)
+    .threshold(1)
+    .build()?;
 
-// Start servers and connect them
-for server in &mut servers {
-    server.start().await?;
-}
-for server in &servers {
-    server.connect_to_peers().await?;
-}
+// 2. Test locally
+let result = runtime.program().execute_local()?;
 
-// Now run your MPC protocol!
+// 3. Configure MPC participants
+let server = runtime.server(0).build()?;
+let client = runtime.client(100).with_inputs(vec![10, 20]).build()?;
 ```
 
-See `quick_start_local_network_real.rs` for complete working example.
+### Planned: Network Infrastructure
 
-### Q: Do I need to manually set up QUIC listeners and connections?
+The SDK will provide its own MPC network infrastructure:
 
-**A:** No! Use `setup_honeybadger_quic_network()` from the `network_helpers` module.
-It handles all the low-level networking automatically:
-- QUIC listener binding
-- Connection establishment
-- Message handler spawning
-- Network topology setup
+```rust
+// Future SDK API (not yet implemented)
+use stoffel_rust_sdk::mpc_network::*;
 
-Advanced users can access the network manager via `node.network_mut()` for custom configuration.
+let network = MPCNetwork::builder()
+    .parties(5)
+    .threshold(1)
+    .build()
+    .await?;
+
+network.start().await?;
+let result = network.execute(program, inputs).await?;
+```
+
+This will wrap StoffelVM's networking components (`QuicNetworkManager`, `HoneyBadgerMpcEngine`) into a cohesive, easy-to-use API.
+
+## For Application Developers
+
+**Current best practice:**
+
+1. Use the SDK for compilation and VM execution
+2. Reference StoffelVM's integration tests for MPC networking patterns
+3. Build your own network layer using StoffelVM's exported components:
+   - `stoffel_vm::net::QuicNetworkManager`
+   - `stoffel_vm::net::hb_engine::HoneyBadgerMpcEngine`
+   - `stoffelmpc_mpc::honeybadger::HoneyBadgerMPCNode`
+
+**Example structure:**
+```rust
+use stoffel_rust_sdk::prelude::*;
+use stoffel_vm::net::{QuicNetworkManager, hb_engine::HoneyBadgerMpcEngine};
+
+// Use SDK for compilation
+let program = Stoffel::compile(source)?.build()?;
+
+// Build your own network using StoffelVM components
+let network = QuicNetworkManager::new();
+// ... (see StoffelVM tests for complete setup)
+```
+
+## Contributing
+
+The SDK is under active development. The main gap is **MPC network infrastructure**.
+
+To contribute:
+1. Study `external/stoffel-vm/crates/stoffel-vm/src/tests/mpc_multiplication_integration.rs`
+2. Design a high-level API that wraps these components
+3. Implement network setup helpers in `src/mpc_network.rs` (when created)
+4. Add examples that use the SDK's infrastructure (not tests)
+
+## See Also
+
+- [Main README](../README.md) - SDK overview
+- [CLAUDE.md](../CLAUDE.md) - Development guide
+- [StoffelVM Repository](https://github.com/Stoffel-Labs/StoffelVM) - VM and networking implementation
+- [StoffelVM Tests](../external/stoffel-vm/crates/stoffel-vm/src/tests/) - Reference MPC implementation
 
 ---
 
-## 🔍 See Also
-
-- [Main README](../README.md) - SDK overview and installation
-- [CLAUDE.md](../CLAUDE.md) - Development notes
-- [Stoffel Language](https://github.com/your-org/stoffel-lang) - Language reference
-
----
-
-## 🤝 Contributing
-
-When adding new examples:
-1. Be clear about whether it's an API demo or working execution
-2. Add descriptive `//!` doc comments at the top
-3. Include "Run with: ..." instruction
-4. Update this README
-5. Test with `cargo run --example <name>`
-
----
-
-Made with ❤️ using the Stoffel SDK
+**Note:** This SDK is under active development. The MPC networking layer is the next major milestone.

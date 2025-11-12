@@ -13,10 +13,10 @@ stoffellang = { path = "external/stoffel-lang" }
 stoffel-vm = { path = "external/stoffel-vm/crates/stoffel-vm" }
 stoffel-vm-types = { path = "external/stoffel-vm/crates/stoffel-vm-types" }
 stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
-stoffelmpc-network = { path = "external/mpc-protocols/network", optional = true }
+stoffelmpc-network = { path = "external/mpc-protocols/network" }
 
-# Modern QUIC-based networking (optional, more advanced)
-stoffelnet = { path = "external/stoffel-networking", optional = true }
+# Modern QUIC-based networking
+stoffelnet = { path = "external/stoffel-networking" }
 
 # Utility dependencies
 anyhow = "1.0"
@@ -33,25 +33,21 @@ ark-std = { version = "0.5.0", features = ["std"] }
 rand = "0.8"
 
 # Async runtime for MPC operations
-tokio = { version = "1.0", features = ["full"], optional = true }
-futures = { version = "0.3", optional = true }
+tokio = { version = "1.0", features = ["full"] }
+futures = { version = "0.3" }
 
 # Cryptography for QUIC
-rustls = { version = "0.23", optional = true }
+rustls = { version = "0.23" }
 
 # Logging
-tracing = { version = "0.1", optional = true }
-tracing-subscriber = { version = "0.3", optional = true }
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3" }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
 
 [features]
 default = []
-# Enable QUIC-based networking layer
-networking = ["stoffelnet"]
-# Enable local MPC execution for testing and examples
-mpc-local = ["stoffelmpc-network", "stoffelnet", "tokio", "futures", "rustls", "tracing", "tracing-subscriber"]
 
 # Ensure all dependencies use the same local version of stoffelnet and mpc-protocols
 [patch."https://github.com/Stoffel-Labs/stoffel-networking.git"]

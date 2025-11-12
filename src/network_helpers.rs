@@ -1,10 +1,23 @@
-//! Production-Ready Network Infrastructure for MPC
+//! Network Infrastructure for MPC
 //!
-//! This module provides complete network infrastructure for production MPC deployments.
-//! It re-exports battle-tested components from stoffel-vm that handle all the complexity
-//! of distributed MPC networking.
+//! This module documents the network infrastructure needed for MPC deployments.
 //!
-//! # What This Module Provides
+//! # Current Status
+//!
+//! The MPC network infrastructure currently lives in StoffelVM's test module.
+//! To use it in your applications or examples, import directly from there:
+//!
+//! ```rust,ignore
+//! use stoffel_vm::tests::mpc_multiplication_integration::{
+//!     setup_honeybadger_quic_network,
+//!     setup_honeybadger_quic_clients,
+//!     HoneyBadgerQuicServer,
+//!     HoneyBadgerQuicClient,
+//!     HoneyBadgerQuicConfig,
+//! };
+//! ```
+//!
+//! # What The Infrastructure Provides
 //!
 //! **Automatic Network Setup:**
 //! - ✅ QUIC listener binding on designated ports
@@ -13,12 +26,12 @@
 //! - ✅ Full mesh network topology management
 //! - ✅ Byzantine fault-tolerant HoneyBadger protocol
 //!
-//! **Production-Ready Components:**
-//! - [`setup_honeybadger_quic_network`] - One-call complete server network setup
-//! - [`setup_honeybadger_quic_clients`] - Automatic client setup with server connections
-//! - [`HoneyBadgerQuicServer`] - Fully-featured MPC server with networking
-//! - [`HoneyBadgerQuicClient`] - MPC client with automatic connection management
-//! - [`HoneyBadgerQuicConfig`] - Network configuration (timeouts, retries, etc.)
+//! **Components:**
+//! - `setup_honeybadger_quic_network` - One-call complete server network setup
+//! - `setup_honeybadger_quic_clients` - Automatic client setup with server connections
+//! - `HoneyBadgerQuicServer` - Fully-featured MPC server with networking
+//! - `HoneyBadgerQuicClient` - MPC client with automatic connection management
+//! - `HoneyBadgerQuicConfig` - Network configuration (timeouts, retries, etc.)
 //!
 //! # Quick Start
 //!
@@ -113,11 +126,27 @@
 //! - Automatic share verification and error correction
 //! - No single point of failure (distributed trust)
 
-#[cfg(feature = "mpc-local")]
-pub use stoffel_vm::tests::mpc_multiplication_integration::{
-    setup_honeybadger_quic_network,
-    setup_honeybadger_quic_clients,
-    HoneyBadgerQuicServer,
-    HoneyBadgerQuicClient,
-    HoneyBadgerQuicConfig,
+// Note: These helpers are available in stoffel-vm's test module.
+// They cannot be re-exported here because they're in the `tests` module
+// which is only available during testing.
+//
+// To use them in your application, import directly from stoffel_vm:
+//
+// ```rust
+// use stoffel_vm::tests::mpc_multiplication_integration::{
+//     setup_honeybadger_quic_network,
+//     setup_honeybadger_quic_clients,
+//     HoneyBadgerQuicServer,
+//     HoneyBadgerQuicClient,
+//     HoneyBadgerQuicConfig,
+// };
+// ```
+//
+// See examples/quick_start_local_network_real.rs for a working example.
+
+// Re-export client store functionality for managing secret shares
+pub use stoffel_vm::net::client_store::{
+    ClientInputStore,
+    ClientInputEntry,
+    get_global_store,
 };
