@@ -228,6 +228,7 @@ pub mod computation_handle;
 pub mod stoffel_server;
 pub mod client_handler;
 pub mod peer_manager;
+pub mod mpcaas_protocol;
 
 // Re-export client functions at crate root for `stoffel::run()` syntax
 pub use stoffel_client::{run, connect};

@@ -2011,6 +2011,7 @@ dependencies = [
  "ark-ff",
  "ark-serialize",
  "ark-std",
+ "bincode",
  "futures",
  "ordered-float",
  "rand 0.8.5",

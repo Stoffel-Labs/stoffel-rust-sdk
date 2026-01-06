@@ -50,6 +50,7 @@ impl ClientState {
 ///
 /// This is used by `StoffelServer` to manage dynamic client registration,
 /// input reception, and output distribution.
+#[derive(Clone)]
 pub struct ClientHandler {
     /// Registered clients and their state
     registered_clients: Arc<Mutex<HashMap<ClientId, ClientState>>>,
