@@ -282,8 +282,7 @@ fn convert_vm_value_to_sdk_value(vm_value: stoffel_vm_types::core_types::Value) 
     match vm_value {
         VMValue::I64(i) => Value::Int(i),
         VMValue::Float(f) => {
-            // Float in runner branch is stored as i64 fixed-point
-            // Convert back to f64 (this is a simplified conversion)
+            // Float in this version is stored as i64 fixed-point
             Value::Float(f as f64 / 1000.0)
         },
         VMValue::Bool(b) => Value::Bool(b),

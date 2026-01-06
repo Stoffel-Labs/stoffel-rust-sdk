@@ -55,3 +55,34 @@ stoffelnet = { path = "external/stoffel-networking" }
 
 [patch."https://github.com/Stoffel-Labs/mpc-protocols.git"]
 stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
+
+[patch."https://github.com/Stoffel-Labs/StoffelVM.git"]
+stoffel-vm-types = { path = "external/stoffel-vm/crates/stoffel-vm-types" }
+
+[[example]]
+name = "bytecode_execution"
+path = "examples/bytecode_execution.rs"
+
+[[example]]
+name = "complete_mpc_workflow"
+path = "examples/complete_mpc_workflow.rs"
+
+[[example]]
+name = "mpc_computation"
+path = "examples/mpc_computation.rs"
+
+[[example]]
+name = "simple_mpc_network"
+path = "examples/simple_mpc_network.rs"
+
+[[example]]
+name = "mpc_e2e"
+path = "examples/mpc_e2e.rs"
+
+[[example]]
+name = "mpcaas_client"
+path = "examples/mpcaas_client.rs"
+
+[[example]]
+name = "mpcaas_server"
+path = "examples/mpcaas_server.rs"

@@ -148,5 +148,29 @@
 pub use stoffel_vm::net::client_store::{
     ClientInputStore,
     ClientInputEntry,
-    get_global_store,
 };
+
+use std::sync::OnceLock;
+
+/// Global client input store singleton
+///
+/// Provides a process-wide shared store for client input shares.
+/// This is used by the SDK to coordinate share storage across components.
+static GLOBAL_STORE: OnceLock<ClientInputStore> = OnceLock::new();
+
+/// Get the global client input store
+///
+/// Returns a reference to the process-wide `ClientInputStore` singleton.
+/// The store is lazily initialized on first access.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use stoffel_rust_sdk::network_helpers::get_global_store;
+///
+/// let store = get_global_store();
+/// // Use the store...
+/// ```
+pub fn get_global_store() -> &'static ClientInputStore {
+    GLOBAL_STORE.get_or_init(ClientInputStore::new)
+}

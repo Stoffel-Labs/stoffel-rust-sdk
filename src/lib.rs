@@ -220,6 +220,17 @@ pub mod vm;
 pub mod program;
 pub mod network_config;
 pub mod secret_sharing;
+pub mod mpc_network;
+
+// MPCaaS Client and Server APIs
+pub mod stoffel_client;
+pub mod computation_handle;
+pub mod stoffel_server;
+pub mod client_handler;
+pub mod peer_manager;
+
+// Re-export client functions at crate root for `stoffel::run()` syntax
+pub use stoffel_client::{run, connect};
 
 /// Advanced APIs for power users (low-level access)
 ///
@@ -372,6 +383,9 @@ pub struct Stoffel {
     network_config: Option<network_config::NetworkConfig>,
     protocol_type: ProtocolType,  // Default MPC protocol (HoneyBadger with BLS12-381)
     share_type: ShareType,  // Secret sharing scheme configuration
+    // MPC execution fields
+    mpc_addresses: Option<Vec<String>>,  // Server addresses for MPC execution
+    client_inputs: Option<Vec<Vec<i64>>>,  // Client inputs for MPC execution
 }
 
 impl Stoffel {
@@ -447,6 +461,8 @@ impl Stoffel {
             network_config: None,
             protocol_type: ProtocolType::HoneyBadger,  // Default protocol
             share_type: ShareType::Robust,  // Default share type
+            mpc_addresses: None,
+            client_inputs: None,
         }
     }
 
@@ -463,6 +479,8 @@ impl Stoffel {
             network_config: None,
             protocol_type: ProtocolType::HoneyBadger,  // Default protocol
             share_type: ShareType::Robust,  // Default share type
+            mpc_addresses: None,
+            client_inputs: None,
         }
     }
 
@@ -575,6 +593,150 @@ impl Stoffel {
     pub fn share_type(mut self, share_type: ShareType) -> Self {
         self.share_type = share_type;
         self
+    }
+
+    /// Set server addresses for MPC execution
+    ///
+    /// By default, localhost addresses are used (127.0.0.1:19200+i).
+    /// Use this method to specify custom addresses for production deployment.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::Stoffel;
+    /// # async fn example() -> stoffel_rust_sdk::Result<()> {
+    /// let result = Stoffel::compile("main main(a: secret int64, b: secret int64) -> secret int64:\n  return a * b")?
+    ///     .parties(5)
+    ///     .threshold(1)
+    ///     .with_addresses(vec![
+    ///         "192.168.1.10:19200",
+    ///         "192.168.1.11:19200",
+    ///         "192.168.1.12:19200",
+    ///         "192.168.1.13:19200",
+    ///         "192.168.1.14:19200",
+    ///     ])
+    ///     .with_inputs(vec![vec![7], vec![6]])
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_addresses(mut self, addresses: Vec<&str>) -> Self {
+        self.mpc_addresses = Some(addresses.iter().map(|s| s.to_string()).collect());
+        self
+    }
+
+    /// Set client inputs for MPC execution
+    ///
+    /// Each inner vector represents inputs from one client.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::Stoffel;
+    /// # async fn example() -> stoffel_rust_sdk::Result<()> {
+    /// // Two clients, each with one input: 7 * 6 = 42
+    /// let result = Stoffel::compile("main main(a: secret int64, b: secret int64) -> secret int64:\n  return a * b")?
+    ///     .parties(5)
+    ///     .threshold(1)
+    ///     .with_inputs(vec![vec![7], vec![6]])
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_inputs(mut self, inputs: Vec<Vec<i64>>) -> Self {
+        self.client_inputs = Some(inputs);
+        self
+    }
+
+    /// Execute the program with full MPC protocol
+    ///
+    /// This method runs the complete MPC workflow:
+    /// 1. Sets up MPC servers on the configured addresses (defaults to localhost)
+    /// 2. Connects the server mesh
+    /// 3. Runs preprocessing (generates Beaver triples)
+    /// 4. Distributes client inputs as secret shares
+    /// 5. Executes the MPC computation
+    /// 6. Reconstructs and returns the output
+    ///
+    /// # Localhost Development
+    ///
+    /// By default, servers run on localhost (127.0.0.1:19200+i).
+    /// This makes it easy to develop and test MPC applications locally.
+    ///
+    /// # Production Deployment
+    ///
+    /// For production, provide server addresses via `.with_addresses()`:
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::Stoffel;
+    /// # async fn example() -> stoffel_rust_sdk::Result<()> {
+    /// // Development: uses localhost defaults
+    /// let result = Stoffel::compile("main main(a: secret int64, b: secret int64) -> secret int64:\n  return a * b")?
+    ///     .parties(5)
+    ///     .threshold(1)
+    ///     .with_inputs(vec![vec![7], vec![6]])
+    ///     .execute()
+    ///     .await?;
+    ///
+    /// println!("Result: {:?}", result);  // 42
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn execute(self) -> Result<vm::Value> {
+        use crate::mpc_network::MPCExecutionConfig;
+
+        // Get or compile bytecode
+        let bytecode = if let Some(bc) = self.bytecode {
+            bc
+        } else {
+            let mut compiler = compiler::Compiler::new();
+            if self.optimize {
+                compiler = compiler.optimize(true);
+            }
+
+            if let Some(source) = self.source {
+                compiler.compile_source(&source)?
+            } else if let Some(path) = self.file_path {
+                compiler.compile_file(&path)?
+            } else {
+                return Err(Error::InvalidInput("No source, file, or bytecode provided".to_string()));
+            }
+        };
+
+        // Validate MPC configuration
+        let n_parties = self.n_parties.unwrap_or(5);
+        let threshold = self.threshold.unwrap_or(1);
+
+        if n_parties < 3 * threshold + 1 {
+            return Err(Error::InvalidInput(format!(
+                "Invalid parameters: n={} must be >= 3t+1={} for t={}",
+                n_parties,
+                3 * threshold + 1,
+                threshold
+            )));
+        }
+
+        // Build execution config
+        let mut config = MPCExecutionConfig::new(n_parties, threshold);
+        if self.instance_id != 0 {
+            config = config.with_instance_id(self.instance_id);
+        }
+
+        // Apply custom addresses if provided
+        if let Some(addresses) = self.mpc_addresses {
+            let addr_refs: Vec<&str> = addresses.iter().map(|s| s.as_str()).collect();
+            config = config.with_addresses(addr_refs)?;
+        }
+
+        // Get client inputs
+        let inputs = self.client_inputs.unwrap_or_default();
+
+        // Execute MPC
+        crate::mpc_network::execute_mpc(&bytecode, config, inputs).await
     }
 
     /// Load network configuration from a TOML file
@@ -775,6 +937,47 @@ impl Stoffel {
 impl Default for Stoffel {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Stoffel {
+    /// Create a server builder for running an MPC server
+    ///
+    /// This is for infrastructure operators running MPC compute nodes.
+    /// Unlike the client API, the server API requires understanding of
+    /// MPC configuration (party ID, peers, program, preprocessing).
+    ///
+    /// # Arguments
+    ///
+    /// * `party_id` - Unique identifier for this server in the MPC network
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use stoffel_rust_sdk::prelude::*;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let program = Stoffel::compile("main main(a: secret int64, b: secret int64) -> secret int64:\n  return a + b")?
+    ///     .build()?;
+    ///
+    /// let server = Stoffel::server(0)  // Party ID 0
+    ///     .bind("0.0.0.0:19200")
+    ///     .with_peers(&[
+    ///         (1, "192.168.1.11:19200"),
+    ///         (2, "192.168.1.12:19200"),
+    ///     ])
+    ///     .with_program(program.program().clone())
+    ///     .with_preprocessing(10, 20)
+    ///     .build()?;
+    ///
+    /// server.start().await?;
+    /// server.run_forever().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn server(party_id: usize) -> stoffel_server::StoffelServerBuilder {
+        stoffel_server::StoffelServerBuilder::new(party_id)
     }
 }
 

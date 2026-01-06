@@ -51,4 +51,35 @@ pub enum Error {
     /// Generic error
     #[error("{0}")]
     Other(String),
+
+    // ====== MPCaaS Client Errors ======
+
+    /// Connection to MPC servers failed
+    #[error("Connection failed: {0}")]
+    ConnectionFailed(String),
+
+    /// Server is unreachable
+    #[error("Server unreachable: {0}")]
+    ServerUnreachable(String),
+
+    /// Computation timed out
+    #[error("Computation timed out")]
+    ComputationTimeout,
+
+    /// Not enough servers connected
+    #[error("Insufficient servers: need {required}, have {connected}")]
+    InsufficientServers {
+        required: usize,
+        connected: usize,
+    },
+
+    // ====== MPCaaS Server Errors ======
+
+    /// Peer connection failed
+    #[error("Peer connection failed: party {0}")]
+    PeerConnectionFailed(usize),
+
+    /// Client was rejected
+    #[error("Client rejected: {0}")]
+    ClientRejected(String),
 }
