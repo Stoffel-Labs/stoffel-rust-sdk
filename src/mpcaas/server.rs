@@ -40,9 +40,9 @@
 //! }
 //! ```
 
-use crate::client_handler::ClientHandler;
-use crate::mpcaas_protocol::{MPCaaSMessage, serialize_message, deserialize_message};
-use crate::peer_manager::{DiscoveryMode, PeerManager};
+use super::client_handler::ClientHandler;
+use super::protocol::{MPCaaSMessage, serialize_message, deserialize_message};
+use super::peer_manager::{DiscoveryMode, PeerManager};
 use crate::program::Program;
 use crate::{Error, Result};
 use std::net::SocketAddr;

@@ -80,8 +80,8 @@
 //! }
 //! ```
 
-use crate::computation_handle::ComputationHandle;
-use crate::mpcaas_protocol::{MPCaaSMessage, serialize_message, deserialize_message};
+use super::handle::ComputationHandle;
+use super::protocol::{MPCaaSMessage, serialize_message, deserialize_message};
 use crate::{Error, Result};
 use std::net::SocketAddr;
 use std::sync::Arc;

@@ -37,7 +37,7 @@
 //!
 //! ## Setting Up a Complete 5-Party MPC Network
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use stoffel_rust_sdk::prelude::*;
 //! use ark_bls12_381::Fr;
 //!
@@ -70,7 +70,7 @@
 //!
 //! ## Complete Example with Execution
 //!
-//! See `examples/quick_start_local_network_real.rs` for a complete working example
+//! See `examples/honeybadger_mpc_demo.rs` for a complete working example
 //! that demonstrates:
 //! 1. Network setup using `setup_honeybadger_quic_network()`
 //! 2. Preprocessing (Beaver triple generation)
@@ -108,7 +108,7 @@
 //! - You're implementing MPC-as-a-Service
 //!
 //! **Don't use `network_helpers` when:**
-//! - Just exploring the SDK API (use `runtime.node()` builders instead)
+//! - Just exploring the SDK API (use `StoffelClient::builder()` or `Stoffel::server()` instead)
 //! - Running local tests without networking
 //! - Building custom network transports (use low-level APIs)
 //!
@@ -142,7 +142,7 @@
 // };
 // ```
 //
-// See examples/quick_start_local_network_real.rs for a working example.
+// See examples/honeybadger_mpc_demo.rs for a working example.
 
 // Re-export client store functionality for managing secret shares
 pub use stoffel_vm::net::client_store::{

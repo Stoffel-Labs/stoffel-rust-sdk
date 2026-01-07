@@ -39,20 +39,25 @@
 //! ## MPC infrastructure setup
 //!
 //! ```rust,no_run
-//! use stoffel_rust_sdk::Stoffel;
+//! use stoffel_rust_sdk::prelude::*;
 //!
-//! # fn main() -> stoffel_rust_sdk::Result<()> {
-//! // Compile with MPC configuration
-//! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-//!     .parties(5)
-//!     .threshold(1)
-//!     .build()?;
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // Compile the program
+//!     let program = Stoffel::compile("main main() -> secret int64:\n  return 42")?
+//!         .build()?;
 //!
-//! // StoffelRuntime provides the MPC participant builders
-//! let node = runtime.node(0).build()?;
-//! let client = runtime.client(100).with_inputs(vec![42]).build()?;
-//! # Ok(())
-//! # }
+//!     // Create an MPC server with the program
+//!     let server = Stoffel::server(0)
+//!         .bind("0.0.0.0:19200")
+//!         .with_peers(&[(1, "server2:19200"), (2, "server3:19200")])
+//!         .with_program(program.program().clone())
+//!         .with_preprocessing(10, 20)
+//!         .build()?;
+//!
+//!     server.start().await?;
+//!     server.run_forever().await
+//! }
 //! ```
 
 use crate::{vm, network_config::NetworkConfig, Error, Result};
@@ -132,10 +137,9 @@ impl Program {
     }
 }
 
-// MPC Participant builders have been moved to their respective modules:
-// - MPCServerBuilder  → src/server.rs
-// - MPCClientBuilder  → src/client.rs
-// - MPCNodeBuilder    → src/session.rs
+// MPC Participant builders are in the mpcaas module:
+// - StoffelServerBuilder  → src/mpcaas/server.rs
+// - StoffelClientBuilder  → src/mpcaas/client.rs
 //
 // This keeps the Program abstraction focused on compiled bytecode,
 // while builders live with the MPC participant types they create.

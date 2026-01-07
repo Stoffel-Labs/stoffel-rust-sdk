@@ -10,10 +10,14 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
-//!     let mpc = stoffel::connect(&["localhost:19200", "localhost:19201"]).await?;
+//!     // Connect to MPC network
+//!     let client = StoffelClient::builder()
+//!         .with_servers(&["localhost:19200", "localhost:19201"])
+//!         .connect()
+//!         .await?;
 //!
 //!     // Submit without blocking
-//!     let handle = mpc.submit(&[42, 100]).await?;
+//!     let mut handle = client.submit(&[42, 100]).await?;
 //!
 //!     // Do other work while computation runs...
 //!
@@ -78,8 +82,11 @@ impl ComputationHandle {
     /// # use stoffel_rust_sdk::prelude::*;
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
-    /// # let mpc = stoffel::connect(&["localhost:19200"]).await?;
-    /// let handle = mpc.submit(&[42]).await?;
+    /// # let client = StoffelClient::builder()
+    /// #     .with_servers(&["localhost:19200"])
+    /// #     .connect()
+    /// #     .await?;
+    /// let handle = client.submit(&[42]).await?;
     /// let result = handle.await_result().await?;
     /// println!("Result: {:?}", result);
     /// # Ok(())
@@ -122,8 +129,11 @@ impl ComputationHandle {
     /// # use stoffel_rust_sdk::prelude::*;
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
-    /// # let mpc = stoffel::connect(&["localhost:19200"]).await?;
-    /// let mut handle = mpc.submit(&[42]).await?;
+    /// # let client = StoffelClient::builder()
+    /// #     .with_servers(&["localhost:19200"])
+    /// #     .connect()
+    /// #     .await?;
+    /// let mut handle = client.submit(&[42]).await?;
     ///
     /// loop {
     ///     if let Some(result) = handle.try_result() {

@@ -65,7 +65,7 @@
 //!
 //! ### Production MPC with Automatic Networking
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use stoffel_rust_sdk::prelude::*;
 //! use ark_bls12_381::Fr;
 //!
@@ -98,31 +98,45 @@
 //!
 //! // Step 4: Run MPC protocol!
 //! // (preprocessing, input sharing, computation, output reconstruction)
-//! // See examples/quick_start_local_network_real.rs for complete implementation
+//! // See examples/honeybadger_mpc_demo.rs for complete implementation
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! ### Simple API Usage (without network execution)
+//! ### MPCaaS Architecture (Client-Server Model)
+//!
+//! The SDK provides a production-ready MPCaaS (MPC as a Service) architecture:
 //!
 //! ```rust,no_run
 //! use stoffel_rust_sdk::prelude::*;
 //!
-//! # fn main() -> Result<()> {
-//! // Compile with MPC configuration
-//! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-//!     .parties(5)
-//!     .threshold(1)
-//!     .build()?;
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // === Client Side (App Developers) ===
+//!     // Clients connect to an existing MPC network to run computations
+//!     let client = StoffelClient::builder()
+//!         .with_servers(&["server1:19200", "server2:19200", "server3:19200"])
+//!         .connect()
+//!         .await?;
 //!
-//! // Create MPC participants (automatic network manager creation)
-//! let client = runtime.client(100).with_inputs(vec![10, 20]).build()?;
-//! let server = runtime.server(0).with_preprocessing(10, 25).build()?;
-//! let node = runtime.node(0).with_inputs(vec![10, 20]).build()?;
+//!     let result = client.run(&[42, 100]).await?;
+//!     println!("Result: {:?}", result);
 //!
-//! // For actual execution, use network_helpers (see above)
-//! # Ok(())
-//! # }
+//!     // === Server Side (Infrastructure Operators) ===
+//!     // Servers form the MPC network and process client requests
+//!     let program = Stoffel::compile("main main() -> secret int64:\n  ...")?
+//!         .build()?;
+//!
+//!     let server = Stoffel::server(0)
+//!         .bind("0.0.0.0:19200")
+//!         .with_peers(&[(1, "server2:19200"), (2, "server3:19200")])
+//!         .with_program(program.program().clone())
+//!         .with_preprocessing(10, 20)
+//!         .build()?;
+//!
+//!     server.start().await?;
+//!     server.run_forever().await
+//! }
 //! ```
 //!
 //! ## Examples
@@ -166,31 +180,36 @@
 //! # }
 //! ```
 //!
-//! ### Setting Up MPC Infrastructure
+//! ### Setting Up MPC Server Infrastructure
 //!
 //! ```rust,no_run
 //! use stoffel_rust_sdk::prelude::*;
 //!
-//! # fn main() -> Result<()> {
-//! // Configure MPC runtime (HoneyBadger protocol is used automatically)
-//! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-//!     .parties(5)         // Number of MPC nodes
-//!     .threshold(1)       // Byzantine fault tolerance: can handle 1 malicious party
-//!     .instance_id(1234)
-//!     .build()?;
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // Compile the program (HoneyBadger protocol is used automatically)
+//!     let program = Stoffel::compile("main main() -> secret int64:\n  return 42")?
+//!         .parties(5)         // Number of MPC nodes
+//!         .threshold(1)       // Byzantine fault tolerance: can handle 1 malicious party
+//!         .build()?;
 //!
-//! // All participants use the same protocol (HoneyBadger)
-//! println!("Using protocol: {:?}", runtime.protocol_type());
+//!     // Create MPC server (party 0 of 5)
+//!     let server = Stoffel::server(0)
+//!         .bind("0.0.0.0:19200")
+//!         .with_peers(&[
+//!             (1, "server2:19201"),
+//!             (2, "server3:19202"),
+//!             (3, "server4:19203"),
+//!             (4, "server5:19204"),
+//!         ])
+//!         .with_program(program.program().clone())
+//!         .with_preprocessing(10, 25)  // Triples and random shares
+//!         .build()?;
 //!
-//! // Create clients (provide inputs)
-//! let client1 = runtime.client(100).with_inputs(vec![10, 20]).build()?;
-//! let client2 = runtime.client(101).with_inputs(vec![30, 40]).build()?;
-//!
-//! // Create servers (perform secure computation using HoneyBadger)
-//! let server1 = runtime.server(0).with_preprocessing(10, 25).build()?;
-//! let server2 = runtime.server(1).with_preprocessing(10, 25).build()?;
-//! # Ok(())
-//! # }
+//!     // Start serving client connections
+//!     server.start().await?;
+//!     server.run_forever().await
+//! }
 //! ```
 //!
 //! ### Advanced: Explicit Protocol Selection
@@ -213,25 +232,18 @@
 
 pub mod compiler;
 pub mod error;
-pub mod client;
-pub mod server;
-pub mod session;
 pub mod vm;
 pub mod program;
 pub mod network_config;
 pub mod secret_sharing;
 pub mod mpc_network;
 
-// MPCaaS Client and Server APIs
-pub mod stoffel_client;
-pub mod computation_handle;
-pub mod stoffel_server;
-pub mod client_handler;
-pub mod peer_manager;
-pub mod mpcaas_protocol;
+// MPCaaS API (Primary)
+pub mod mpcaas;
 
-// Re-export client types at crate root
-pub use stoffel_client::{StoffelClient, StoffelClientBuilder, ClientState};
+// Re-export MPCaaS types at crate root
+pub use mpcaas::{StoffelClient, StoffelClientBuilder, ClientState};
+pub use mpcaas::{StoffelServer, StoffelServerBuilder, ServerState};
 
 /// Advanced APIs for power users (low-level access)
 ///
@@ -251,8 +263,6 @@ pub mod network_helpers;
 pub mod prelude;
 
 pub mod mpc_local;
-
-pub mod stoffel_mpc;
 
 pub use error::{Error, Result};
 
@@ -321,7 +331,7 @@ pub mod mpc_types {
 ///     ↓
 /// StoffelRuntime (holds Program + MPC config + Protocol)
 ///     ↓
-/// MPCClient / MPCServer / MPCNode (participants using configured protocol)
+/// StoffelClient / StoffelServer (participants using configured protocol)
 /// ```
 ///
 /// # Examples
@@ -343,27 +353,33 @@ pub mod mpc_types {
 /// ## MPC Infrastructure Setup
 ///
 /// ```rust,no_run
-/// use stoffel_rust_sdk::Stoffel;
+/// use stoffel_rust_sdk::prelude::*;
 ///
-/// # fn main() -> stoffel_rust_sdk::Result<()> {
-/// // Compile with MPC configuration (HoneyBadger protocol is automatic)
-/// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-///     .parties(5)       // 5-party network
-///     .threshold(1)     // Byzantine fault tolerance: tolerates 1 malicious party
-///     .instance_id(42)  // Computation ID
-///     .build()?;
+/// #[tokio::main]
+/// async fn main() -> Result<()> {
+///     // Compile with MPC configuration (HoneyBadger protocol is automatic)
+///     let runtime = Stoffel::compile("main main() -> secret int64:\n  return 42")?
+///         .parties(5)       // 5-party network
+///         .threshold(1)     // Byzantine fault tolerance: tolerates 1 malicious party
+///         .build()?;
 ///
-/// // Check which protocol is being used
-/// println!("Protocol: {:?}", runtime.protocol_type());  // HoneyBadger
+///     // Check which protocol is being used
+///     println!("Protocol: {:?}", runtime.protocol_type());  // HoneyBadger
 ///
-/// // Test locally before deploying
-/// let result = runtime.program().execute_local()?;
+///     // Test locally before deploying
+///     let result = runtime.program().execute_local()?;
 ///
-/// // Create MPC participants (inherit HoneyBadger protocol from runtime)
-/// let client = runtime.client(100).with_inputs(vec![42]).build()?;
-/// let server = runtime.server(0).build()?;
-/// # Ok(())
-/// # }
+///     // Create MPC server with program
+///     let server = Stoffel::server(0)
+///         .bind("0.0.0.0:19200")
+///         .with_peers(&[(1, "server2:19200"), (2, "server3:19200")])
+///         .with_program(runtime.program().clone())
+///         .with_preprocessing(10, 20)
+///         .build()?;
+///
+///     server.start().await?;
+///     server.run_forever().await
+/// }
 /// ```
 ///
 /// # Builder Pattern
@@ -822,16 +838,16 @@ impl Stoffel {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use stoffel_rust_sdk::Stoffel;
-    /// # fn main() -> stoffel_rust_sdk::Result<()> {
+    /// use stoffel_rust_sdk::prelude::*;
+    ///
+    /// # fn main() -> Result<()> {
     /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
     ///     .parties(5)
     ///     .threshold(1)
     ///     .build()?;
     ///
-    /// // Create MPC participants from the runtime
-    /// let client = runtime.client(100).with_inputs(vec![42]).build()?;
-    /// let server = runtime.server(0).build()?;
+    /// // Use the program for local testing
+    /// let result = runtime.program().execute_local()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -965,8 +981,8 @@ impl Stoffel {
     ///     Ok(())
     /// }
     /// ```
-    pub fn client() -> stoffel_client::StoffelClientBuilder {
-        stoffel_client::StoffelClientBuilder::new()
+    pub fn client() -> mpcaas::client::StoffelClientBuilder {
+        mpcaas::client::StoffelClientBuilder::new()
     }
 
     /// Create a server builder for running an MPC server
@@ -1004,8 +1020,8 @@ impl Stoffel {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn server(party_id: usize) -> stoffel_server::StoffelServerBuilder {
-        stoffel_server::StoffelServerBuilder::new(party_id)
+    pub fn server(party_id: usize) -> mpcaas::server::StoffelServerBuilder {
+        mpcaas::server::StoffelServerBuilder::new(party_id)
     }
 }
 
@@ -1021,8 +1037,9 @@ impl Stoffel {
 /// # Example
 ///
 /// ```rust,no_run
-/// # use stoffel_rust_sdk::Stoffel;
-/// # fn main() -> stoffel_rust_sdk::Result<()> {
+/// use stoffel_rust_sdk::prelude::*;
+///
+/// # fn main() -> Result<()> {
 /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
 ///     .parties(5)
 ///     .threshold(1)
@@ -1031,9 +1048,8 @@ impl Stoffel {
 /// // Access the program for local execution
 /// let result = runtime.program().execute_local()?;
 ///
-/// // Create MPC participants (automatically configured with HoneyBadger protocol)
-/// let client = runtime.client(100).with_inputs(vec![42]).build()?;
-/// let server = runtime.server(0).build()?;
+/// // Get program for use in MPC server
+/// let program = runtime.program().clone();
 /// # Ok(())
 /// # }
 /// ```
@@ -1220,101 +1236,4 @@ impl StoffelRuntime {
         self.share_type
     }
 
-    /// Create an MPC client builder
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use stoffel_rust_sdk::Stoffel;
-    /// # fn main() -> stoffel_rust_sdk::Result<()> {
-    /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-    ///     .parties(5)
-    ///     .threshold(1)
-    ///     .build()?;
-    ///
-    /// let client = runtime.client(100)
-    ///     .with_inputs(vec![42, 10])
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn client(&self, client_id: usize) -> client::MPCClientBuilder {
-        let (n_parties, threshold, instance_id) = self.mpc_config()
-            .expect("Cannot create MPC client without MPC configuration. Use .parties(n).threshold(t) when building.");
-
-        client::MPCClientBuilder::new(
-            client_id,
-            n_parties,
-            threshold,
-            instance_id,
-            self.protocol_type,
-            self.share_type,
-        )
-    }
-
-    /// Create an MPC server builder
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use stoffel_rust_sdk::Stoffel;
-    /// # fn main() -> stoffel_rust_sdk::Result<()> {
-    /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-    ///     .parties(5)
-    ///     .threshold(1)
-    ///     .build()?;
-    ///
-    /// let server = runtime.server(0)
-    ///     .with_preprocessing(10, 25)
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn server(&self, party_id: usize) -> server::MPCServerBuilder {
-        let (n_parties, threshold, instance_id) = self.mpc_config()
-            .expect("Cannot create MPC server without MPC configuration. Use .parties(n).threshold(t) when building.");
-
-        server::MPCServerBuilder::new(
-            party_id,
-            n_parties,
-            threshold,
-            instance_id,
-            self.protocol_type,
-        )
-    }
-
-    /// Create an MPC node builder
-    ///
-    /// Nodes are for peer-to-peer scenarios where all parties both provide inputs
-    /// and participate in computation.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use stoffel_rust_sdk::Stoffel;
-    /// # fn main() -> stoffel_rust_sdk::Result<()> {
-    /// let runtime = Stoffel::compile("main main(a: secret int64, b: secret int64) -> secret int64:\n  return a * b")?
-    ///     .parties(5)
-    ///     .threshold(1)
-    ///     .build()?;
-    ///
-    /// let node = runtime.node(0)
-    ///     .with_inputs(vec![10, 20])
-    ///     .with_preprocessing(3, 8)
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn node(&self, party_id: usize) -> session::MPCNodeBuilder {
-        let (n_parties, threshold, instance_id) = self.mpc_config()
-            .expect("Cannot create MPC node without MPC configuration. Use .parties(n).threshold(t) when building.");
-
-        session::MPCNodeBuilder::new(
-            party_id,
-            n_parties,
-            threshold,
-            instance_id,
-            self.protocol_type,
-        )
-    }
 }

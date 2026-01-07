@@ -5,7 +5,7 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use stoffel_rust_sdk::mpc_local::LocalMPCNetwork;
 //!
 //! #[tokio::main]

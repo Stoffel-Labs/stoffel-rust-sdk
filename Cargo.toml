@@ -61,22 +61,6 @@ stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
 stoffel-vm-types = { path = "external/stoffel-vm/crates/stoffel-vm-types" }
 
 [[example]]
-name = "bytecode_execution"
-path = "examples/bytecode_execution.rs"
-
-[[example]]
-name = "complete_mpc_workflow"
-path = "examples/complete_mpc_workflow.rs"
-
-[[example]]
-name = "mpc_computation"
-path = "examples/mpc_computation.rs"
-
-[[example]]
-name = "simple_mpc_network"
-path = "examples/simple_mpc_network.rs"
-
-[[example]]
 name = "mpc_e2e"
 path = "examples/mpc_e2e.rs"
 

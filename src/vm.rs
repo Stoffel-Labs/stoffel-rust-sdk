@@ -44,7 +44,7 @@ pub use stoffel_vm::core_vm::VirtualMachine as RawVirtualMachine;
 /// * `Err(_)` - Failed to parse or register bytecode
 ///
 /// # Note
-/// This function is used internally by both `VM::run_bytecode()` and `MPCServer::load_bytecode()`
+/// This function is used internally by `VM::run_bytecode()` and MPC server implementations
 /// to avoid code duplication while allowing different VM lifecycle management.
 pub(crate) fn load_bytecode_into_vm(vm: &mut VirtualMachine, bytecode: &[u8]) -> Result<()> {
     use std::io::Cursor;
