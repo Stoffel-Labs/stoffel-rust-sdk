@@ -317,6 +317,10 @@ impl MPCServer {
             n_triples: self.n_triples,
             n_random_shares: self.n_random_shares,
             instance_id: config.instance_id,
+            n_prandbit: 0,
+            n_prandint: 0,
+            l: 0,
+            k: 0,
         };
 
         // Create the HoneyBadger MPC node

@@ -63,7 +63,7 @@ pub use crate::secret_sharing::{SecretSharing, SecretShare};
 pub use crate::network_helpers;
 
 // MPCaaS Client API (for app developers)
-pub use crate::stoffel_client::{run, connect, MPCConnection};
+pub use crate::stoffel_client::{StoffelClient, StoffelClientBuilder, ClientState};
 pub use crate::computation_handle::ComputationHandle;
 
 // MPCaaS Server API (for infrastructure operators)
@@ -71,4 +71,5 @@ pub use crate::stoffel_server::{StoffelServer, StoffelServerBuilder, ServerState
 
 // Peer and client management (for server implementations)
 pub use crate::peer_manager::{PeerManager, PeerState, PeerInfo, DiscoveryMode, PartyId};
-pub use crate::client_handler::{ClientHandler, ClientState, ClientId};
+pub use crate::client_handler::{ClientHandler, ClientId};
+// Note: ClientHandler's ClientState is available via client_handler::ClientState if needed

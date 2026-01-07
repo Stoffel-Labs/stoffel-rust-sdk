@@ -23,7 +23,7 @@
 //! }
 //! ```
 
-use ark_ff::FftField;
+use ark_ff::PrimeField;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use stoffelmpc_mpc::common::rbc::rbc::Avid;
 use stoffelmpc_mpc::common::{MPCProtocol, PreprocessingMPCProtocol};
@@ -193,7 +193,7 @@ impl Default for MPCNetworkConfig {
 }
 
 /// MPC Server node in the network
-pub struct MPCServer<F: FftField> {
+pub struct MPCServer<F: PrimeField> {
     /// The underlying HoneyBadger MPC node
     pub node: HoneyBadgerMPCNode<F, Avid>,
     /// QUIC network manager (Arc for sharing across tasks)
@@ -212,7 +212,7 @@ pub struct MPCServer<F: FftField> {
     pub channels: Sender<Vec<u8>>,
 }
 
-impl<F: FftField + 'static> MPCServer<F> {
+impl<F: PrimeField + 'static> MPCServer<F> {
     /// Creates a new MPC server
     pub async fn new(
         node_id: PartyId,
@@ -470,7 +470,7 @@ pub enum ClientActorMessage {
 }
 
 /// MPC Client for providing inputs
-pub struct MPCClient<F: FftField> {
+pub struct MPCClient<F: PrimeField> {
     /// QUIC network manager
     pub network: Arc<Mutex<QuicNetworkManager>>,
     /// Configuration
@@ -487,7 +487,7 @@ pub struct MPCClient<F: FftField> {
     actor_task: Option<JoinHandle<HoneyBadgerMPCClient<F, Avid>>>,
 }
 
-impl<F: FftField + 'static> MPCClient<F> {
+impl<F: PrimeField + 'static> MPCClient<F> {
     /// Creates a new MPC client
     pub async fn new(
         client_id: ClientId,
@@ -665,7 +665,7 @@ impl<F: FftField + 'static> MPCClient<F> {
     }
 }
 
-impl<F: FftField + 'static> Drop for MPCClient<F> {
+impl<F: PrimeField + 'static> Drop for MPCClient<F> {
     fn drop(&mut self) {
         if let Some(task) = self.actor_task.take() {
             task.abort();
@@ -678,7 +678,7 @@ impl<F: FftField + 'static> Drop for MPCClient<F> {
 }
 
 /// Helper function to set up a complete MPC server network
-pub async fn setup_mpc_network<F: FftField + 'static>(
+pub async fn setup_mpc_network<F: PrimeField + 'static>(
     n_parties: usize,
     threshold: usize,
     n_triples: usize,
@@ -710,6 +710,10 @@ pub async fn setup_mpc_network<F: FftField + 'static>(
         n_triples,
         n_random_shares,
         instance_id,
+        0,  // n_prandbit
+        0,  // n_prandint
+        0,  // l
+        0,  // k
     );
 
     // Create all servers
@@ -735,7 +739,7 @@ pub async fn setup_mpc_network<F: FftField + 'static>(
 }
 
 /// Helper function to set up MPC clients
-pub async fn setup_mpc_clients<F: FftField + 'static>(
+pub async fn setup_mpc_clients<F: PrimeField + 'static>(
     client_ids: Vec<ClientId>,
     server_addresses: Vec<SocketAddr>,
     n_parties: usize,

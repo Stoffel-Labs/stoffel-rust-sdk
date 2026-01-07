@@ -3,15 +3,22 @@
 //! This demonstrates how an app developer integrates MPC using the MPCaaS API.
 //! The developer only needs to know: connect to servers, submit inputs, get output.
 //!
-//! # One-Liner Usage
+//! # Usage
 //!
 //! ```rust,no_run
 //! use stoffel_rust_sdk::prelude::*;
 //!
-//! let result = run(
-//!     &["localhost:19200", "localhost:19201", "localhost:19202", "localhost:19203"],
-//!     &[42, 100]  // My inputs (as many as the program requires)
-//! ).await?;
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     let client = StoffelClient::builder()
+//!         .with_servers(&["localhost:19200", "localhost:19201", "localhost:19202", "localhost:19203"])
+//!         .connect()
+//!         .await?;
+//!
+//!     let result = client.run(&[42, 100]).await?;
+//!     println!("Result: {:?}", result);
+//!     Ok(())
+//! }
 //! ```
 //!
 //! # Running
@@ -55,26 +62,15 @@ async fn main() -> Result<()> {
     println!("Servers: {:?}", servers);
     println!("Inputs: {:?}\n", inputs);
 
-    // Example 1: Connect to servers and run computation
+    // Connect to servers using the StoffelClient builder
     println!("Connecting to MPC network...");
 
-    match connect(servers).await {
-        Ok(mpc) => {
-            println!("Connected! (n={}, t={}, client_id={})",
-                mpc.n_parties(), mpc.threshold(), mpc.client_id());
-            println!("\nSubmitting inputs and waiting for result...");
-
-            match mpc.run(inputs).await {
-                Ok(result) => {
-                    println!("\n=== Computation Complete ===");
-                    println!("Result: {:?}", result);
-                }
-                Err(e) => {
-                    println!("\nComputation error: {}", e);
-                    println!("(This is expected if servers don't send ComputationComplete yet)");
-                }
-            }
-        }
+    let client = match StoffelClient::builder()
+        .with_servers(servers)
+        .connect()
+        .await
+    {
+        Ok(c) => c,
         Err(e) => {
             println!("Connection failed: {}", e);
             println!("\nMake sure the servers are running:");
@@ -82,6 +78,23 @@ async fn main() -> Result<()> {
             println!("  cargo run --example mpcaas_server -- --party-id 1 --port 19201");
             println!("  cargo run --example mpcaas_server -- --party-id 2 --port 19202");
             println!("  cargo run --example mpcaas_server -- --party-id 3 --port 19203");
+            return Ok(());
+        }
+    };
+
+    println!("Connected! (n={}, t={}, client_id={})",
+        client.n_parties(), client.threshold(), client.client_id());
+    println!("State: {:?}", client.state());
+    println!("\nSubmitting inputs and waiting for result...");
+
+    match client.run(inputs).await {
+        Ok(result) => {
+            println!("\n=== Computation Complete ===");
+            println!("Result: {:?}", result);
+        }
+        Err(e) => {
+            println!("\nComputation error: {}", e);
+            println!("(This is expected if servers don't send ComputationComplete yet)");
         }
     }
 

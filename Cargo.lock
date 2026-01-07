@@ -124,6 +124,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-bn254"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d69eab57e8d2663efa5c63135b2af4f396d66424f88954c21104125ab6b3e6bc"
+dependencies = [
+ "ark-ec",
+ "ark-ff",
+ "ark-std",
+]
+
+[[package]]
 name = "ark-ec"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1911,19 +1922,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_json"
-version = "1.0.148"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3084b546a1dd6289475996f182a22aba973866ea8e8b02c51d9f46b1336a22da"
-dependencies = [
- "itoa",
- "memchr",
- "serde",
- "serde_core",
- "zmij",
-]
-
-[[package]]
 name = "serde_spanned"
 version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1931,6 +1929,12 @@ checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
@@ -2076,6 +2080,7 @@ dependencies = [
  "parking_lot 0.12.5",
  "rustc-hash",
  "smallvec",
+ "stoffelmpc-mpc",
 ]
 
 [[package]]
@@ -2093,6 +2098,7 @@ name = "stoffelmpc-mpc"
 version = "0.1.0"
 dependencies = [
  "ark-bls12-381",
+ "ark-bn254",
  "ark-ff",
  "ark-poly",
  "ark-serialize",
@@ -2113,6 +2119,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -2121,14 +2128,12 @@ version = "0.1.0"
 dependencies = [
  "ark-ff",
  "ark-serialize",
- "ark-std",
  "async-trait",
  "futures",
  "serde",
  "stoffelnet",
  "thiserror 2.0.17",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2138,18 +2143,14 @@ dependencies = [
  "ark-ff",
  "async-trait",
  "bincode",
- "byteorder",
  "dashmap 7.0.0-rc2",
  "quinn",
- "rand 0.8.5",
  "rcgen",
  "rustls",
  "serde",
- "serde_json",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -2504,6 +2505,7 @@ dependencies = [
  "getrandom 0.3.4",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 
@@ -3029,9 +3031,3 @@ dependencies = [
  "quote",
  "syn 2.0.113",
 ]
-
-[[package]]
-name = "zmij"
-version = "1.0.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fc5a66a20078bf1251bde995aa2fdcc4b800c70b5d92dd2c62abc5c60f679f8"

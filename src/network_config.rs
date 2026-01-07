@@ -142,16 +142,20 @@ impl NetworkConfig {
     /// Validate the configuration
     ///
     /// Ensures that:
-    /// - n_parties >= 3 * threshold + 1
+    /// - n_parties >= 4 * threshold + 1 (for HoneyBadger TripleGen batch reconstruction)
     /// - party_id < n_parties
     /// - Addresses are valid
+    ///
+    /// Note: The basic Byzantine constraint is n >= 3t + 1, but HoneyBadger's TripleGen
+    /// preprocessing uses degree-2t shares which require n >= 4t + 1 for robust
+    /// interpolation in batch reconstruction.
     pub fn validate(&self) -> Result<()> {
-        // Validate MPC parameters
-        if self.mpc.n_parties < 3 * self.mpc.threshold + 1 {
+        // Validate MPC parameters - TripleGen requires n >= 4t + 1
+        if self.mpc.n_parties < 4 * self.mpc.threshold + 1 {
             return Err(Error::InvalidInput(format!(
-                "Invalid MPC parameters: n_parties={} must be >= 3*threshold+1={} for threshold={}",
+                "Invalid MPC parameters: n_parties={} must be >= 4*threshold+1={} for threshold={} (HoneyBadger TripleGen constraint)",
                 self.mpc.n_parties,
-                3 * self.mpc.threshold + 1,
+                4 * self.mpc.threshold + 1,
                 self.mpc.threshold
             )));
         }

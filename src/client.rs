@@ -59,8 +59,8 @@
 //!
 //! # async fn example() -> Result<()> {
 //! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-//!     .parties(3)
-//!     .threshold(0)
+//!     .parties(5)
+//!     .threshold(1)
 //!     .build()?;
 //!
 //! // Create client with private inputs
@@ -69,9 +69,9 @@
 //!     .build()?;
 //!
 //! // Add server addresses
-//! client.add_server(0, "127.0.0.1:19200".parse()?);
-//! client.add_server(1, "127.0.0.1:19201".parse()?);
-//! client.add_server(2, "127.0.0.1:19202".parse()?);
+//! client.add_server(0, "127.0.0.1:19200".parse().unwrap());
+//! client.add_server(1, "127.0.0.1:19201".parse().unwrap());
+//! client.add_server(2, "127.0.0.1:19202".parse().unwrap());
 //!
 //! // Connect to all servers
 //! let rx = client.connect_to_servers().await?;

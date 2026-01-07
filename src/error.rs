@@ -62,9 +62,13 @@ pub enum Error {
     #[error("Server unreachable: {0}")]
     ServerUnreachable(String),
 
-    /// Computation timed out
+    /// Computation timed out (legacy - prefer Timeout)
     #[error("Computation timed out")]
     ComputationTimeout,
+
+    /// Operation timed out with specific reason
+    #[error("Timeout: {0}")]
+    Timeout(String),
 
     /// Not enough servers connected
     #[error("Insufficient servers: need {required}, have {connected}")]

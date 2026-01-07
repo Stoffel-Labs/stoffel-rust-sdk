@@ -230,8 +230,8 @@ pub mod client_handler;
 pub mod peer_manager;
 pub mod mpcaas_protocol;
 
-// Re-export client functions at crate root for `stoffel::run()` syntax
-pub use stoffel_client::{run, connect};
+// Re-export client types at crate root
+pub use stoffel_client::{StoffelClient, StoffelClientBuilder, ClientState};
 
 /// Advanced APIs for power users (low-level access)
 ///
@@ -942,6 +942,33 @@ impl Default for Stoffel {
 }
 
 impl Stoffel {
+    /// Create a client builder for connecting to an MPC network
+    ///
+    /// This is for app developers who want to submit inputs to an MPC network.
+    /// Unlike the server API, clients don't need to know about party IDs,
+    /// preprocessing, or MPC configuration - that's auto-detected from servers.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use stoffel_rust_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<()> {
+    ///     let client = Stoffel::client()
+    ///         .with_servers(&["localhost:19200", "localhost:19201"])
+    ///         .connect()
+    ///         .await?;
+    ///
+    ///     let result = client.run(&[42, 100]).await?;
+    ///     println!("Result: {:?}", result);
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn client() -> stoffel_client::StoffelClientBuilder {
+        stoffel_client::StoffelClientBuilder::new()
+    }
+
     /// Create a server builder for running an MPC server
     ///
     /// This is for infrastructure operators running MPC compute nodes.

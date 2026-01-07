@@ -99,7 +99,7 @@ git submodule update --init --recursive
 - **MPC Network Integration**: Full MPC network integration requires setting up stoffelnet networking layer. The API wrappers are complete but need network connectivity.
 
 #### Resolved Issues
-- **StoffelVM Build Errors** (Closed STO-231): Fixed by switching to the `runner` branch instead of `main`. Added stub `client_store.rs` module for client-server MPC scenarios.
+- **StoffelVM Build Errors** (Closed STO-231): Fixed. Added stub `client_store.rs` module for client-server MPC scenarios.
 
 ### Design Goals
 
@@ -243,16 +243,16 @@ The SDK implements an **MPC as a Service** architecture using the **HoneyBadger 
 - **Scalability**: Many clients can use a fixed MPC network of servers
 - **Security**: Clear boundaries between data providers and compute servers
 - **Byzantine fault tolerance**: HoneyBadger handles malicious parties (not just crash failures)
-- **Automatic validation**: SDK validates n >= 3t + 1 constraint at build time
+- **Automatic validation**: SDK validates n >= 4t + 1 constraint at build time
 - **Flexibility**: Full participant mode (MPCNode) available for collaborative scenarios
 
 #### Configuration Requirements
 
 When configuring MPC networks with HoneyBadger:
-- Minimum: 4 parties with threshold 1 (4 >= 3*1 + 1)
-- Common: 5 parties with threshold 1 (5 >= 3*1 + 1) - used in examples
-- Higher tolerance: 7 parties with threshold 2 (7 >= 3*2 + 1)
-- Always ensure: n >= 3t + 1 for Byzantine fault tolerance
+- **TripleGen constraint**: n >= 4t + 1 (stricter than basic Byzantine n >= 3t + 1)
+- Minimum: 5 parties with threshold 1 (5 >= 4*1 + 1)
+- Higher tolerance: 9 parties with threshold 2 (9 >= 4*2 + 1)
+- The TripleGen preprocessing uses degree-2t shares requiring more parties for robust interpolation
 
 As the architecture evolves, document key patterns for:
 - How the three components interact

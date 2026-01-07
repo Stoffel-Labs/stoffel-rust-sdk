@@ -88,6 +88,7 @@ pub enum DiscoveryMode {
 /// Manager for peer connections in the MPC network
 ///
 /// Handles peer discovery, connection management, and mesh topology maintenance.
+#[derive(Clone)]
 pub struct PeerManager {
     /// This server's party ID
     party_id: PartyId,

@@ -87,3 +87,7 @@ path = "examples/mpcaas_client.rs"
 [[example]]
 name = "mpcaas_server"
 path = "examples/mpcaas_server.rs"
+
+[[example]]
+name = "honeybadger_mpc_demo"
+path = "examples/honeybadger_mpc_demo.rs"

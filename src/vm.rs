@@ -234,6 +234,18 @@ pub enum Value {
     Array(Vec<Value>),
     /// Unit/null value
     Unit,
+    /// Secret-shared value (share type, share data bytes)
+    /// Used in MPC computations where the result is still in shared form
+    Share(ShareType, Vec<u8>),
+}
+
+/// Type of a secret share
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShareType {
+    /// Secret integer with specified bit length
+    SecretInt { bit_length: usize },
+    /// Secret fixed-point with precision (k = total bits, f = fractional bits)
+    SecretFixedPoint { k: usize, f: usize },
 }
 
 impl Value {
@@ -276,20 +288,32 @@ impl Value {
 }
 
 /// Convert StoffelVM Value to SDK Value
-fn convert_vm_value_to_sdk_value(vm_value: stoffel_vm_types::core_types::Value) -> Value {
+pub(crate) fn convert_vm_value_to_sdk_value(vm_value: stoffel_vm_types::core_types::Value) -> Value {
     use stoffel_vm_types::core_types::Value as VMValue;
+    use stoffel_vm_types::core_types::ShareType as VMShareType;
 
     match vm_value {
         VMValue::I64(i) => Value::Int(i),
         VMValue::Float(f) => {
-            // Float in this version is stored as i64 fixed-point
-            Value::Float(f as f64 / 1000.0)
+            // Float is now an F64 wrapper - extract the inner value
+            Value::Float(f.value())
         },
         VMValue::Bool(b) => Value::Bool(b),
         VMValue::String(s) => Value::String(s),
-        VMValue::Object(id) => Value::Object(HashMap::new()), // TODO: Extract object data
-        VMValue::Array(id) => Value::Array(vec![]), // TODO: Extract array data
+        VMValue::Object(_id) => Value::Object(HashMap::new()), // TODO: Extract object data
+        VMValue::Array(_id) => Value::Array(vec![]), // TODO: Extract array data
         VMValue::Unit => Value::Unit,
+        VMValue::Share(st, data) => {
+            // Convert VM ShareType to SDK ShareType
+            let sdk_st = match st {
+                VMShareType::SecretInt { bit_length } => ShareType::SecretInt { bit_length },
+                VMShareType::SecretFixedPoint { precision } => ShareType::SecretFixedPoint {
+                    k: precision.k(),
+                    f: precision.f(),
+                },
+            };
+            Value::Share(sdk_st, data)
+        },
         _ => Value::Unit, // For other types, default to Unit
     }
 }
@@ -297,12 +321,15 @@ fn convert_vm_value_to_sdk_value(vm_value: stoffel_vm_types::core_types::Value) 
 /// Convert SDK Value to StoffelVM Value
 fn convert_sdk_value_to_vm_value(sdk_value: Value) -> stoffel_vm_types::core_types::Value {
     use stoffel_vm_types::core_types::Value as VMValue;
+    use stoffel_vm_types::core_types::ShareType as VMShareType;
+    use stoffel_vm_types::core_types::F64;
+    use stoffelmpc_mpc::common::types::fixed::FixedPointPrecision;
 
     match sdk_value {
         Value::Int(i) => VMValue::I64(i),
         Value::Float(f) => {
-            // Convert f64 to fixed-point i64 representation
-            VMValue::Float((f * 1000.0) as i64)
+            // Float is now an F64 wrapper
+            VMValue::Float(F64::new(f))
         },
         Value::Bool(b) => VMValue::Bool(b),
         Value::String(s) => VMValue::String(s),
@@ -310,5 +337,294 @@ fn convert_sdk_value_to_vm_value(sdk_value: Value) -> stoffel_vm_types::core_typ
         // For complex types, we'd need to serialize them properly
         Value::Object(_) => VMValue::Unit, // TODO: Implement object conversion
         Value::Array(_) => VMValue::Unit, // TODO: Implement array conversion
+        Value::Share(st, data) => {
+            // Convert SDK ShareType to VM ShareType
+            let vm_st = match st {
+                ShareType::SecretInt { bit_length } => VMShareType::SecretInt { bit_length },
+                ShareType::SecretFixedPoint { k, f } => VMShareType::SecretFixedPoint {
+                    precision: FixedPointPrecision::new(k, f),
+                },
+            };
+            VMValue::Share(vm_st, data)
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stoffel_vm_types::core_types::Value as VMValue;
+    use stoffel_vm_types::core_types::ShareType as VMShareType;
+    use stoffel_vm_types::core_types::F64;
+    use stoffelmpc_mpc::common::types::fixed::FixedPointPrecision;
+
+    // =========================================================================
+    // Value Conversion Tests
+    // =========================================================================
+
+    /// Test converting VM I64 to SDK Int
+    #[test]
+    fn test_convert_vm_int_to_sdk() {
+        let vm_value = VMValue::I64(42);
+        let sdk_value = convert_vm_value_to_sdk_value(vm_value);
+
+        assert_eq!(sdk_value, Value::Int(42));
+        assert_eq!(sdk_value.as_int(), Some(42));
+    }
+
+    /// Test converting VM Float to SDK Float
+    #[test]
+    fn test_convert_vm_float_to_sdk() {
+        let vm_value = VMValue::Float(F64::new(3.14));
+        let sdk_value = convert_vm_value_to_sdk_value(vm_value);
+
+        match sdk_value {
+            Value::Float(f) => assert!((f - 3.14).abs() < 0.001),
+            _ => panic!("Expected Float value"),
+        }
+    }
+
+    /// Test converting VM Bool to SDK Bool
+    #[test]
+    fn test_convert_vm_bool_to_sdk() {
+        let vm_true = VMValue::Bool(true);
+        let vm_false = VMValue::Bool(false);
+
+        assert_eq!(convert_vm_value_to_sdk_value(vm_true), Value::Bool(true));
+        assert_eq!(convert_vm_value_to_sdk_value(vm_false), Value::Bool(false));
+    }
+
+    /// Test converting VM String to SDK String
+    #[test]
+    fn test_convert_vm_string_to_sdk() {
+        let vm_value = VMValue::String("hello".to_string());
+        let sdk_value = convert_vm_value_to_sdk_value(vm_value);
+
+        assert_eq!(sdk_value, Value::String("hello".to_string()));
+        assert_eq!(sdk_value.as_string(), Some("hello"));
+    }
+
+    /// Test converting VM Unit to SDK Unit
+    #[test]
+    fn test_convert_vm_unit_to_sdk() {
+        let vm_value = VMValue::Unit;
+        let sdk_value = convert_vm_value_to_sdk_value(vm_value);
+
+        assert_eq!(sdk_value, Value::Unit);
+        assert!(sdk_value.is_unit());
+    }
+
+    /// Test converting SDK Int to VM I64
+    #[test]
+    fn test_convert_sdk_int_to_vm() {
+        let sdk_value = Value::Int(100);
+        let vm_value = convert_sdk_value_to_vm_value(sdk_value);
+
+        match vm_value {
+            VMValue::I64(i) => assert_eq!(i, 100),
+            _ => panic!("Expected I64 value"),
+        }
+    }
+
+    /// Test converting SDK Float to VM Float
+    #[test]
+    fn test_convert_sdk_float_to_vm() {
+        let sdk_value = Value::Float(2.71828);
+        let vm_value = convert_sdk_value_to_vm_value(sdk_value);
+
+        match vm_value {
+            VMValue::Float(f) => assert!((f.value() - 2.71828).abs() < 0.00001),
+            _ => panic!("Expected Float value"),
+        }
+    }
+
+    // =========================================================================
+    // Share Type Tests
+    // =========================================================================
+
+    /// Test ShareType::SecretInt enum conversion
+    #[test]
+    fn test_share_type_secret_int() {
+        let share_type = ShareType::SecretInt { bit_length: 64 };
+
+        match share_type {
+            ShareType::SecretInt { bit_length } => assert_eq!(bit_length, 64),
+            _ => panic!("Expected SecretInt"),
+        }
+    }
+
+    /// Test ShareType::SecretFixedPoint enum conversion
+    #[test]
+    fn test_share_type_secret_fixed_point() {
+        let share_type = ShareType::SecretFixedPoint { k: 64, f: 32 };
+
+        match share_type {
+            ShareType::SecretFixedPoint { k, f } => {
+                assert_eq!(k, 64);
+                assert_eq!(f, 32);
+            }
+            _ => panic!("Expected SecretFixedPoint"),
+        }
+    }
+
+    /// Test VM Share value round-trip conversion
+    #[test]
+    fn test_share_roundtrip() {
+        // Create a VM Share with SecretInt type
+        let share_data = vec![0x01, 0x02, 0x03, 0x04];
+        let vm_share = VMValue::Share(
+            VMShareType::SecretInt { bit_length: 64 },
+            share_data.clone()
+        );
+
+        // Convert VM -> SDK
+        let sdk_value = convert_vm_value_to_sdk_value(vm_share);
+
+        // Verify SDK value
+        match &sdk_value {
+            Value::Share(st, data) => {
+                match st {
+                    ShareType::SecretInt { bit_length } => assert_eq!(*bit_length, 64),
+                    _ => panic!("Expected SecretInt"),
+                }
+                assert_eq!(data, &share_data);
+            }
+            _ => panic!("Expected Share value"),
+        }
+
+        // Convert SDK -> VM
+        let vm_back = convert_sdk_value_to_vm_value(sdk_value);
+
+        // Verify round-trip
+        match vm_back {
+            VMValue::Share(st, data) => {
+                match st {
+                    VMShareType::SecretInt { bit_length } => assert_eq!(bit_length, 64),
+                    _ => panic!("Expected SecretInt"),
+                }
+                assert_eq!(data, share_data);
+            }
+            _ => panic!("Expected Share value after round-trip"),
+        }
+    }
+
+    /// Test FixedPoint share round-trip conversion
+    #[test]
+    fn test_fixed_point_share_roundtrip() {
+        let share_data = vec![0xAA, 0xBB, 0xCC, 0xDD];
+        let vm_share = VMValue::Share(
+            VMShareType::SecretFixedPoint {
+                precision: FixedPointPrecision::new(64, 32)
+            },
+            share_data.clone()
+        );
+
+        // Convert VM -> SDK
+        let sdk_value = convert_vm_value_to_sdk_value(vm_share);
+
+        match &sdk_value {
+            Value::Share(ShareType::SecretFixedPoint { k, f }, data) => {
+                assert_eq!(*k, 64);
+                assert_eq!(*f, 32);
+                assert_eq!(data, &share_data);
+            }
+            _ => panic!("Expected SecretFixedPoint Share"),
+        }
+    }
+
+    // =========================================================================
+    // Value Accessor Tests
+    // =========================================================================
+
+    /// Test Value::as_int() accessor
+    #[test]
+    fn test_value_as_int() {
+        assert_eq!(Value::Int(42).as_int(), Some(42));
+        assert_eq!(Value::Float(3.14).as_int(), None);
+        assert_eq!(Value::String("hello".to_string()).as_int(), None);
+    }
+
+    /// Test Value::as_float() accessor
+    #[test]
+    fn test_value_as_float() {
+        assert_eq!(Value::Float(3.14).as_float(), Some(3.14));
+        assert_eq!(Value::Int(42).as_float(), None);
+    }
+
+    /// Test Value::as_bool() accessor
+    #[test]
+    fn test_value_as_bool() {
+        assert_eq!(Value::Bool(true).as_bool(), Some(true));
+        assert_eq!(Value::Bool(false).as_bool(), Some(false));
+        assert_eq!(Value::Int(1).as_bool(), None);
+    }
+
+    /// Test Value::as_string() accessor
+    #[test]
+    fn test_value_as_string() {
+        assert_eq!(Value::String("test".to_string()).as_string(), Some("test"));
+        assert_eq!(Value::Int(42).as_string(), None);
+    }
+
+    /// Test Value::is_unit() method
+    #[test]
+    fn test_value_is_unit() {
+        assert!(Value::Unit.is_unit());
+        assert!(!Value::Int(0).is_unit());
+        assert!(!Value::Bool(false).is_unit());
+    }
+
+    // =========================================================================
+    // VM Integration Tests
+    // =========================================================================
+
+    /// Test VM can execute a simple program
+    #[test]
+    fn test_vm_execute_simple() {
+        let source = "main main() -> int64:\n  return 42\n";
+
+        // Compile the program
+        let compiler = crate::compiler::Compiler::new();
+        let bytecode = compiler.compile_source(source).expect("Compilation failed");
+
+        // Execute with VM
+        let vm = VM::new();
+        let result = vm.run_bytecode(&bytecode, "main");
+
+        assert!(result.is_ok(), "VM execution failed: {:?}", result.err());
+        assert_eq!(result.unwrap(), Value::Int(42));
+    }
+
+    /// Test LoadedProgram::from_bytecode constructor
+    #[test]
+    fn test_loaded_program_from_bytecode() {
+        let source = "main main() -> int64:\n  return 100\n";
+
+        let compiler = crate::compiler::Compiler::new();
+        let bytecode = compiler.compile_source(source).expect("Compilation failed");
+
+        let loaded = LoadedProgram::from_bytecode(bytecode);
+        let result = loaded.execute("main");
+
+        assert!(result.is_ok(), "Execution failed: {:?}", result.err());
+        assert_eq!(result.unwrap(), Value::Int(100));
+    }
+
+    /// Test LoadedProgram::list_functions
+    #[test]
+    fn test_loaded_program_list_functions() {
+        let source = "main main() -> int64:\n  return 1\n";
+
+        let compiler = crate::compiler::Compiler::new();
+        let bytecode = compiler.compile_source(source).expect("Compilation failed");
+
+        let loaded = LoadedProgram::from_bytecode(bytecode);
+        let functions = loaded.list_functions().expect("Failed to list functions");
+
+        assert!(!functions.is_empty(), "Should have at least one function");
+        assert!(
+            functions.iter().any(|f| f.name == "main"),
+            "Should contain 'main' function"
+        );
     }
 }
