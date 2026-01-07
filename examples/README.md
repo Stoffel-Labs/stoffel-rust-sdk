@@ -54,18 +54,6 @@ This example shows:
 - Submitting secret inputs
 - Receiving computation results
 
-### mpc_e2e.rs
-
-End-to-end MPC with the unified `.execute()` API:
-
-```bash
-cargo run --example mpc_e2e
-```
-
-This example demonstrates:
-- One-liner MPC execution on localhost
-- Full protocol execution with QUIC networking
-
 ## Quick Start
 
 ### As an App Developer (Client)

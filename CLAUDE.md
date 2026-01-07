@@ -237,4 +237,3 @@ Available examples in `examples/`:
 - `honeybadger_mpc_demo.rs` - Full E2E MPC demonstration
 - `mpcaas_server.rs` - Running an MPC server node
 - `mpcaas_client.rs` - Connecting as an MPC client
-- `mpc_e2e.rs` - End-to-end MPC with unified API

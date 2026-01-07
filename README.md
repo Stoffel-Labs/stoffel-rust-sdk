@@ -133,9 +133,6 @@ cargo run --example mpcaas_server
 
 # Connect as an MPC client
 cargo run --example mpcaas_client
-
-# End-to-end MPC with unified API
-cargo run --example mpc_e2e
 ```
 
 See [examples/README.md](examples/README.md) for detailed documentation.

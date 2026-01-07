@@ -39,9 +39,6 @@ pub use crate::compiler::{Compiler, OptimizationLevel};
 pub use crate::vm::{VM, Value, LoadedProgram};
 pub use crate::program::Program;
 
-// MPC execution configuration
-pub use crate::mpc_network::MPCExecutionConfig;
-
 // Configuration
 pub use crate::network_config::{NetworkConfig, NetworkSettings, MPCSettings, NetworkConfigBuilder};
 pub use crate::secret_sharing::{SecretSharing, SecretShare};
