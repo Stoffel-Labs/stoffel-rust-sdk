@@ -122,17 +122,11 @@ fn main() -> Result<()> {
 
 ## Examples
 
-Run the included examples:
+Run the included example:
 
 ```bash
 # Full E2E MPC demonstration
 cargo run --example honeybadger_mpc_demo
-
-# Run an MPC server
-cargo run --example mpcaas_server
-
-# Connect as an MPC client
-cargo run --example mpcaas_client
 ```
 
 See [examples/README.md](examples/README.md) for detailed documentation.

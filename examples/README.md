@@ -10,7 +10,7 @@ The Stoffel Rust SDK provides a production-ready **MPCaaS (MPC as a Service)** a
 
 ### honeybadger_mpc_demo.rs
 
-**START HERE** - Full end-to-end MPC demonstration:
+Full end-to-end MPC demonstration:
 
 ```bash
 cargo run --example honeybadger_mpc_demo
@@ -21,38 +21,7 @@ This example shows:
 - Client connecting to the server network
 - Secure computation with secret inputs
 - Output reconstruction and verification
-
-### mpcaas_server.rs
-
-Run an MPC server node:
-
-```bash
-# Run multiple servers in separate terminals
-cargo run --example mpcaas_server -- --party-id 0 --port 19200
-cargo run --example mpcaas_server -- --party-id 1 --port 19201
-cargo run --example mpcaas_server -- --party-id 2 --port 19202
-cargo run --example mpcaas_server -- --party-id 3 --port 19203
-```
-
-This example demonstrates:
-- Server configuration with party ID and port
-- Peer connection setup
-- Preprocessing initialization
-- Client connection handling
-
-### mpcaas_client.rs
-
-Connect as an MPC client:
-
-```bash
-# After starting servers, run the client
-cargo run --example mpcaas_client
-```
-
-This example shows:
-- Simple client connection to MPC network
-- Submitting secret inputs
-- Receiving computation results
+- Complete StoffelServer and StoffelClient API usage
 
 ## Quick Start
 
@@ -102,13 +71,13 @@ async fn main() -> Result<()> {
 
 ## MPC Configuration
 
-The SDK uses the HoneyBadger protocol which requires:
+The SDK uses the HoneyBadger protocol with TripleGen preprocessing which requires:
 - **Minimum parties**: 5 (for threshold 1)
-- **Constraint**: n >= 4t + 1 (for preprocessing)
+- **Constraint**: n >= 4t + 1 (TripleGen requires more parties than basic Byzantine n >= 3t + 1)
 
 Common configurations:
-- 5 parties, threshold 1: Local testing
-- 7 parties, threshold 2: Higher fault tolerance
+- 5 parties, threshold 1: Local testing (minimum)
+- 9 parties, threshold 2: Higher fault tolerance (9 >= 4*2 + 1)
 
 ## Running Examples
 

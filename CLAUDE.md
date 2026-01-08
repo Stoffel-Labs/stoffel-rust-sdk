@@ -234,6 +234,4 @@ When configuring MPC networks with HoneyBadger:
 ### Examples
 
 Available examples in `examples/`:
-- `honeybadger_mpc_demo.rs` - Full E2E MPC demonstration
-- `mpcaas_server.rs` - Running an MPC server node
-- `mpcaas_client.rs` - Connecting as an MPC client
+- `honeybadger_mpc_demo.rs` - Full E2E MPC demonstration (includes server and client API usage)

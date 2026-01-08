@@ -547,6 +547,7 @@ impl StoffelServer {
         let mpc_engine_slot = Arc::clone(&self.mpc_engine);
         let preprocessing_complete = Arc::clone(&self.preprocessing_complete);
         let preprocessing_start_epoch = self.preprocessing_start_epoch;
+        let bind_address = self.bind_address;
 
         tokio::spawn(async move {
             Self::connect_to_peers_and_preprocess(
@@ -557,6 +558,7 @@ impl StoffelServer {
                 n_random_shares,
                 instance_id,
                 preprocessing_start_epoch,
+                bind_address,
                 peer_manager,
                 network,
                 peer_connections,
@@ -631,6 +633,7 @@ impl StoffelServer {
         n_random_shares: usize,
         instance_id: u64,
         preprocessing_start_epoch: Option<u64>,
+        bind_address: std::net::SocketAddr,
         peer_manager: PeerManager,
         network: Arc<Mutex<QuicNetworkManager>>,
         peer_connections: Arc<Mutex<std::collections::HashMap<usize, Arc<dyn PeerConnection>>>>,
@@ -709,10 +712,13 @@ impl StoffelServer {
 
         let mut mpc_network = QuicNetworkManager::with_node_id(party_id);
 
-        // Bind the MPC network to a different port (base + 1000 + party_id)
-        // This allows the MPC engine to have its own listener
-        let mpc_port = 19200 + 1000 + party_id as u16;
-        let mpc_bind_addr: std::net::SocketAddr = format!("0.0.0.0:{}", mpc_port).parse().unwrap();
+        // Bind the MPC network to a different port (client port + 1000)
+        // This allows the MPC engine to have its own listener separate from client-facing port
+        let mpc_port = bind_address.port() + 1000;
+        let mpc_bind_addr: std::net::SocketAddr = std::net::SocketAddr::new(
+            std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+            mpc_port
+        );
 
         if let Err(e) = mpc_network.listen(mpc_bind_addr).await {
             tracing::warn!("Server {} MPC network failed to bind to {}: {}", party_id, mpc_bind_addr, e);
@@ -724,6 +730,23 @@ impl StoffelServer {
         // Register self-party in the party map to avoid PartyNotFound(self) during preprocessing
         // This matches the pattern in StoffelVM's mpc_multiplication_integration.rs
         mpc_network.add_node_with_party_id(party_id, mpc_bind_addr);
+
+        // CRITICAL: Register ALL peer parties in the party map BEFORE connecting/preprocessing
+        // Without this, MPC protocol fails with PartyNotFound when broadcasting to peers
+        // This matches the pattern in StoffelVM's mpc_multiplication_integration.rs:128-140
+        for peer in &peers {
+            let peer_mpc_port = peer.address.port() + 1000;
+            let peer_mpc_addr = std::net::SocketAddr::new(peer.address.ip(), peer_mpc_port);
+            mpc_network.add_node_with_party_id(peer.party_id, peer_mpc_addr);
+            tracing::debug!(
+                "Server {} registered peer {} at {} in MPC party map",
+                party_id, peer.party_id, peer_mpc_addr
+            );
+        }
+        tracing::info!(
+            "Server {} registered {} parties in MPC network (self + {} peers)",
+            party_id, peers.len() + 1, peers.len()
+        );
 
         // Ensure loopback connection exists for self-delivery
         // This is critical for MPC protocols that send messages to themselves during preprocessing

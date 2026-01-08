@@ -1,7 +1,7 @@
 //! Full E2E HoneyBadger MPC Demo
 //!
 //! Demonstrates the complete MPC workflow:
-//! 1. Start 4 MPC servers with HoneyBadger preprocessing
+//! 1. Start 5 MPC servers with HoneyBadger preprocessing
 //! 2. Connect a client with secret inputs
 //! 3. Execute secure computation
 //! 4. Receive and verify reconstructed output
@@ -11,10 +11,22 @@
 //! ```bash
 //! cargo run --example honeybadger_mpc_demo
 //! ```
+//!
+//! ## Features
+//!
+//! - **Dynamic port allocation**: Uses OS-assigned ports to avoid conflicts
+//! - **Graceful shutdown**: Press Ctrl+C to cleanly stop all servers
 
 use stoffel_rust_sdk::prelude::*;
 use std::time::Duration;
 use tokio::time::sleep;
+
+/// Generate unique base port for this process to avoid conflicts.
+/// Uses process ID to select a base port in the 30000-60000 range.
+fn unique_base_port() -> u16 {
+    // Use process ID to get a unique base in range 30000-59999
+    30000 + (std::process::id() % 30000) as u16
+}
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -39,14 +51,18 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // For threshold=1: need at least 5 parties (5 >= 4*1 + 1)
     let n_parties = 5;
     let threshold = 1;  // Tolerate 1 Byzantine failure
-    let base_port = 19200;
     // CRITICAL: All servers MUST share the same instance_id for MPC session coordination
     let instance_id: u64 = 12345;
+
+    // Generate unique ports based on process ID to avoid conflicts
+    let base_port = unique_base_port();
+    let ports: Vec<u16> = (0..n_parties).map(|i| base_port + i as u16).collect();
 
     println!("MPC Configuration:");
     println!("  Parties (n): {}", n_parties);
     println!("  Threshold (t): {} (tolerates {} Byzantine failures)", threshold, threshold);
     println!("  Instance ID: {} (shared by all servers)", instance_id);
+    println!("  Ports: {:?} (unique per process, base: {})", ports, base_port);
     println!("  TripleGen constraint: n >= 4t + 1 -> {} >= {} ✓", n_parties, 4 * threshold + 1);
     println!();
 
@@ -72,8 +88,9 @@ main main() -> secret int64:
     println!("  Compilation: SUCCESS\n");
 
     // ===== Step 3: Generate peer addresses =====
-    let peer_addrs: Vec<(usize, String)> = (0..n_parties)
-        .map(|i| (i, format!("127.0.0.1:{}", base_port + i)))
+    let peer_addrs: Vec<(usize, String)> = ports.iter()
+        .enumerate()
+        .map(|(i, port)| (i, format!("127.0.0.1:{}", port)))
         .collect();
 
     // ===== Step 4: Create and start servers =====
@@ -102,7 +119,7 @@ main main() -> secret int64:
     // Pre-build all servers before spawning (avoids lifetime issues)
     let mut servers = Vec::new();
     for party_id in 0..n_parties {
-        let bind_addr = format!("0.0.0.0:{}", base_port + party_id);
+        let bind_addr = format!("0.0.0.0:{}", ports[party_id]);
 
         // Create peers list excluding self as static strings
         let peers: Vec<(usize, &str)> = peer_addrs.iter()
@@ -237,11 +254,22 @@ main main() -> secret int64:
     }
 
     println!("────────────────────────────────────────────");
-    println!("Demo complete!");
+    println!("Demo complete! Press Ctrl+C to exit...");
     println!("────────────────────────────────────────────");
 
-    // Note: In a real application, you would want to gracefully shut down servers
-    // For demo purposes, we just let the process exit
+    // Wait for Ctrl+C to gracefully shutdown
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            println!("\nReceived Ctrl+C, shutting down gracefully...");
+        }
+    }
+
+    // Abort all server tasks
+    for handle in server_handles {
+        handle.abort();
+    }
+
+    println!("All servers stopped.");
 
     Ok(())
 }

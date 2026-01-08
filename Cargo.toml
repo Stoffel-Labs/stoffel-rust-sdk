@@ -61,13 +61,5 @@ stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
 stoffel-vm-types = { path = "external/stoffel-vm/crates/stoffel-vm-types" }
 
 [[example]]
-name = "mpcaas_client"
-path = "examples/mpcaas_client.rs"
-
-[[example]]
-name = "mpcaas_server"
-path = "examples/mpcaas_server.rs"
-
-[[example]]
 name = "honeybadger_mpc_demo"
 path = "examples/honeybadger_mpc_demo.rs"
