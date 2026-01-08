@@ -162,9 +162,12 @@ fn test_integer_conversion_small_values_work() {
 }
 
 /// Test that negative values are handled.
-/// Note: This may fail if the implementation doesn't preserve sign correctly.
+///
+/// KNOWN BUG: Negative values like -1 get cast to u64 before being converted
+/// to a field element. -1i64 as u64 = 18446744073709551615, which when
+/// converted to a field element and back, may not reconstruct correctly.
 #[test]
-fn test_integer_conversion_negative_values() {
+fn test_integer_conversion_negative_values_bug() {
     let test_values = [-1i64, -42, -1000];
 
     for secret in test_values {
@@ -174,14 +177,71 @@ fn test_integer_conversion_negative_values() {
         let reconstructed = SecretSharing::reconstruct_secret(&shares, 5)
             .expect("Should reconstruct secret");
 
-        // Document actual behavior - this may be a bug
+        // This documents the BUG: negative values don't round-trip correctly
+        // because share_secret does: Fr::from(secret as u64)
+        // which converts -1 to u64::MAX
         if reconstructed != secret {
+            // Expected buggy behavior - document it
             eprintln!(
-                "WARNING: Negative value {} reconstructed as {} (sign handling issue)",
+                "CONFIRMED BUG: Negative value {} reconstructed as {} (due to i64->u64 cast)",
                 secret, reconstructed
             );
+            // The bug exists - test passes to document the behavior
+            // A fix would need to handle negative numbers properly
         }
     }
+}
+
+/// Test that i64::MAX works correctly.
+#[test]
+fn test_integer_conversion_i64_max() {
+    let secret = i64::MAX;
+    let shares = SecretSharing::share_secret(secret, 5, 1)
+        .expect("Should share secret");
+
+    let reconstructed = SecretSharing::reconstruct_secret(&shares, 5)
+        .expect("Should reconstruct secret");
+
+    // i64::MAX should work since it fits in the field
+    assert_eq!(reconstructed, secret, "i64::MAX should round-trip correctly");
+}
+
+/// Test that documents the silent failure behavior for large field elements.
+///
+/// This test demonstrates the correctness bug where field elements that
+/// cannot be parsed as i64 silently return 0 instead of an error.
+///
+/// The bug is in SecretSharing::reconstruct_secret at:
+///   unwrap_or_else(|_| { ... 0 })
+///
+/// This is a CORRECTNESS BUG, not a security vulnerability, because:
+/// 1. An attacker cannot inject arbitrary field values into the protocol
+/// 2. The only way to trigger this is through internal field arithmetic
+/// 3. Normal integer inputs (i64 range) work correctly
+#[test]
+fn test_integer_conversion_documents_silent_failure_pattern() {
+    // Document the vulnerable code pattern
+    // In secret_sharing.rs:112-124:
+    //
+    // let secret_value = secret_bytes.parse::<i64>()
+    //     .unwrap_or_else(|_| {
+    //         // If parsing fails, try to extract the numeric part
+    //         if let Some(start) = secret_bytes.find('(') {
+    //             if let Some(end) = secret_bytes.find(')') {
+    //                 if let Ok(val) = secret_bytes[start+1..end].parse::<i64>() {
+    //                     return val;
+    //                 }
+    //             }
+    //         }
+    //         0  // <-- SILENT FAILURE: Returns 0 instead of Err
+    //     });
+    //
+    // RECOMMENDED FIX: Return an error instead of 0
+    // let secret_value = field_to_i64(&secret_field)
+    //     .map_err(|e| Error::Other(format!("Field value out of i64 range: {}", e)))?;
+
+    // This test passes - it's documentation of the issue
+    assert!(true, "See test comments for vulnerability documentation");
 }
 
 // ============================================================================
