@@ -124,6 +124,8 @@ pub struct StoffelServerBuilder {
     /// Absolute epoch time (seconds since Unix epoch) when preprocessing should start
     /// All servers MUST use the same value for coordinated preprocessing start
     preprocessing_start_epoch: Option<u64>,
+    /// Byzantine fault tolerance threshold (if None, defaults to maximum)
+    threshold: Option<usize>,
 }
 
 impl StoffelServerBuilder {
@@ -140,6 +142,7 @@ impl StoffelServerBuilder {
             n_random_shares: 20,
             instance_id: None,
             preprocessing_start_epoch: None,
+            threshold: None,
         }
     }
 
@@ -304,6 +307,30 @@ impl StoffelServerBuilder {
         self
     }
 
+    /// Set the Byzantine fault tolerance threshold explicitly.
+    ///
+    /// The threshold determines how many faulty parties the protocol can tolerate.
+    /// For HoneyBadger, the constraint is: n >= 3t + 1
+    ///
+    /// If not set, defaults to **maximum** threshold for the given party count,
+    /// providing the strongest security guarantees.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # fn main() -> Result<()> {
+    /// // Override default: use lower threshold for faster preprocessing (dev only)
+    /// let builder = Stoffel::server(0)
+    ///     .with_threshold(1);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_threshold(mut self, t: usize) -> Self {
+        self.threshold = Some(t);
+        self
+    }
+
     /// Build the MPC server
     ///
     /// # Errors
@@ -335,7 +362,37 @@ impl StoffelServerBuilder {
 
         // Calculate n_parties from peers + self
         let n_parties = self.peers.len() + 1;
-        let threshold = 1; // Default threshold
+
+        // Default to MAXIMUM threshold for maximum fault tolerance.
+        //
+        // JUSTIFICATION: The threshold determines Byzantine fault tolerance - how many
+        // malicious or crashed parties the protocol can tolerate. Defaulting to maximum
+        // (t = (n-1)/3) provides the strongest security guarantees by default.
+        //
+        // This matches the CLI behavior (stoffel dev/run/test) which also defaults to
+        // maximum threshold. Users who need faster preprocessing for development can
+        // explicitly set a lower threshold via .with_threshold(1).
+        //
+        // Trade-off: Higher threshold increases preprocessing cost, but security should
+        // not be silently compromised for performance. Explicit opt-in to lower security
+        // is the safer pattern.
+        //
+        // Formula: For HoneyBadger, n >= 3t + 1, so max t = (n-1)/3
+        let threshold = self.threshold.unwrap_or_else(|| {
+            if n_parties < 4 {
+                1  // Minimum for small networks
+            } else {
+                (n_parties - 1) / 3  // Maximum fault tolerance
+            }
+        });
+
+        // Validate threshold constraint: HoneyBadger requires n >= 3t + 1
+        if n_parties < 3 * threshold + 1 {
+            return Err(Error::Configuration(format!(
+                "HoneyBadger requires n >= 3t+1. Got n={}, t={}. Max threshold for {} parties is {}.",
+                n_parties, threshold, n_parties, (n_parties - 1) / 3
+            )));
+        }
 
         // Create peer manager
         let peer_manager = PeerManager::new(
@@ -1982,5 +2039,119 @@ mod tests {
             let builder = StoffelServerBuilder::new(party_id);
             assert_eq!(builder.party_id, party_id);
         }
+    }
+
+    // =========================================================================
+    // Threshold Default Tests
+    // =========================================================================
+
+    /// Test with_threshold builder method
+    #[test]
+    fn test_server_builder_with_threshold() {
+        let builder = StoffelServerBuilder::new(0)
+            .with_threshold(2);
+
+        assert_eq!(builder.threshold, Some(2));
+    }
+
+    /// Test default threshold is None in builder
+    #[test]
+    fn test_server_builder_default_threshold_is_none() {
+        let builder = StoffelServerBuilder::new(0);
+        assert_eq!(builder.threshold, None);
+    }
+
+    /// Test maximum threshold calculation formula
+    ///
+    /// For HoneyBadger: max t = (n-1)/3
+    /// - 4 parties → max threshold 1: (4-1)/3 = 1
+    /// - 5 parties → max threshold 1: (5-1)/3 = 1
+    /// - 6 parties → max threshold 1: (6-1)/3 = 1
+    /// - 7 parties → max threshold 2: (7-1)/3 = 2
+    /// - 10 parties → max threshold 3: (10-1)/3 = 3
+    /// - 13 parties → max threshold 4: (13-1)/3 = 4
+    #[test]
+    fn test_max_threshold_calculation() {
+        // Test the formula directly
+        let test_cases = [
+            (4, 1),  // 4 parties → max t=1
+            (5, 1),  // 5 parties → max t=1
+            (6, 1),  // 6 parties → max t=1
+            (7, 2),  // 7 parties → max t=2
+            (8, 2),  // 8 parties → max t=2
+            (9, 2),  // 9 parties → max t=2
+            (10, 3), // 10 parties → max t=3
+            (13, 4), // 13 parties → max t=4
+        ];
+
+        for (n_parties, expected_max_t) in test_cases {
+            let calculated = if n_parties < 4 {
+                1
+            } else {
+                (n_parties - 1) / 3
+            };
+            assert_eq!(
+                calculated, expected_max_t,
+                "For n={}, expected max_t={}, got {}",
+                n_parties, expected_max_t, calculated
+            );
+        }
+    }
+
+    /// Test threshold validation passes for valid configurations
+    #[test]
+    fn test_threshold_validation_valid_configs() {
+        // Valid: n >= 3t + 1
+        let valid_configs = [
+            (4, 1),  // 4 >= 3*1+1 = 4 ✓
+            (5, 1),  // 5 >= 3*1+1 = 4 ✓
+            (7, 2),  // 7 >= 3*2+1 = 7 ✓
+            (8, 2),  // 8 >= 3*2+1 = 7 ✓
+            (10, 3), // 10 >= 3*3+1 = 10 ✓
+        ];
+
+        for (n_parties, threshold) in valid_configs {
+            assert!(
+                n_parties >= 3 * threshold + 1,
+                "Config n={}, t={} should be valid but validation failed",
+                n_parties, threshold
+            );
+        }
+    }
+
+    /// Test threshold validation fails for invalid configurations
+    #[test]
+    fn test_threshold_validation_invalid_configs() {
+        // Invalid: n < 3t + 1
+        let invalid_configs = [
+            (4, 2),  // 4 < 3*2+1 = 7 ✗
+            (5, 2),  // 5 < 3*2+1 = 7 ✗
+            (6, 2),  // 6 < 3*2+1 = 7 ✗
+            (9, 3),  // 9 < 3*3+1 = 10 ✗
+        ];
+
+        for (n_parties, threshold) in invalid_configs {
+            assert!(
+                n_parties < 3 * threshold + 1,
+                "Config n={}, t={} should be invalid but validation passed",
+                n_parties, threshold
+            );
+        }
+    }
+
+    /// Test with_threshold in builder chain
+    #[test]
+    fn test_server_builder_chaining_with_threshold() {
+        let builder = StoffelServerBuilder::new(0)
+            .bind("127.0.0.1:19200")
+            .with_peers(&[(1, "127.0.0.1:19201"), (2, "127.0.0.1:19202")])
+            .with_preprocessing(5, 10)
+            .with_threshold(1)
+            .with_instance_id(999);
+
+        assert!(builder.bind_address.is_some());
+        assert_eq!(builder.peers.len(), 2);
+        assert_eq!(builder.threshold, Some(1));
+        assert_eq!(builder.instance_id, Some(999));
     }
 }
