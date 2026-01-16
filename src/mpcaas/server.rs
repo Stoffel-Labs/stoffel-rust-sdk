@@ -115,6 +115,8 @@ pub struct StoffelServerBuilder {
     preprocessing_start_epoch: Option<u64>,
     /// Byzantine fault tolerance threshold (if None, defaults to maximum)
     threshold: Option<usize>,
+    /// Timeout for clients waiting for preprocessing to complete (default: 60 seconds)
+    preprocessing_wait_timeout: Duration,
 }
 
 impl StoffelServerBuilder {
@@ -132,6 +134,7 @@ impl StoffelServerBuilder {
             instance_id: None,
             preprocessing_start_epoch: None,
             threshold: None,
+            preprocessing_wait_timeout: Duration::from_secs(60),
         }
     }
 
@@ -320,6 +323,27 @@ impl StoffelServerBuilder {
         self
     }
 
+    /// Set the timeout for clients waiting for preprocessing to complete.
+    ///
+    /// If a client connects before preprocessing finishes, they will wait up to
+    /// this duration. Default is 60 seconds.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # use std::time::Duration;
+    /// # fn main() -> Result<()> {
+    /// let builder = Stoffel::server(0)
+    ///     .with_preprocessing_wait_timeout(Duration::from_secs(120));
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_preprocessing_wait_timeout(mut self, timeout: Duration) -> Self {
+        self.preprocessing_wait_timeout = timeout;
+        self
+    }
+
     /// Build the MPC server
     ///
     /// # Errors
@@ -429,6 +453,7 @@ impl StoffelServerBuilder {
             mpc_engine: Arc::new(Mutex::new(None)),
             preprocessing_complete: Arc::new(AtomicBool::new(false)),
             preprocessing_start_epoch: self.preprocessing_start_epoch,
+            preprocessing_wait_timeout: self.preprocessing_wait_timeout,
         })
     }
 }
@@ -473,6 +498,8 @@ pub struct StoffelServer {
     preprocessing_complete: Arc<AtomicBool>,
     /// Absolute epoch time when preprocessing should start (None = use relative delays)
     preprocessing_start_epoch: Option<u64>,
+    /// Timeout for clients waiting for preprocessing to complete
+    preprocessing_wait_timeout: Duration,
 }
 
 impl StoffelServer {
@@ -647,6 +674,7 @@ impl StoffelServer {
                 let mpc_engine = Arc::clone(&self.mpc_engine);
                 let preprocessing_complete = Arc::clone(&self.preprocessing_complete);
                 let program_bytecode = self.program.bytecode().to_vec();
+                let preprocessing_wait_timeout = self.preprocessing_wait_timeout;
 
                 tokio::spawn(async move {
                     if let Err(e) = Self::handle_incoming_connection(
@@ -660,6 +688,7 @@ impl StoffelServer {
                         mpc_engine,
                         preprocessing_complete,
                         program_bytecode,
+                        preprocessing_wait_timeout,
                     ).await {
                         tracing::error!("Server {} connection handler error: {}", party_id, e);
                     }
@@ -1077,6 +1106,7 @@ impl StoffelServer {
         mpc_engine: Arc<Mutex<Option<Arc<HoneyBadgerMpcEngine>>>>,
         preprocessing_complete: Arc<AtomicBool>,
         program_bytecode: Vec<u8>,
+        preprocessing_wait_timeout: Duration,
     ) -> Result<()> {
         tracing::info!(
             "Server {} received client connection from {}",
@@ -1123,32 +1153,32 @@ impl StoffelServer {
                 // Check if preprocessing is complete
                 if !preprocessing_complete.load(Ordering::SeqCst) {
                     tracing::warn!(
-                        "Server {} preprocessing not complete, client {} must wait",
+                        "Server {} preprocessing not complete, client {} must wait (timeout: {:?})",
                         party_id,
-                        client_id
+                        client_id,
+                        preprocessing_wait_timeout
                     );
 
-                    // Wait for preprocessing to complete (with timeout)
-                    let timeout_duration = std::time::Duration::from_secs(30);
+                    // Wait for preprocessing to complete (with configurable timeout)
                     let start = std::time::Instant::now();
                     let mut last_log = std::time::Instant::now();
 
                     while !preprocessing_complete.load(Ordering::SeqCst) {
-                        if start.elapsed() > timeout_duration {
+                        if start.elapsed() > preprocessing_wait_timeout {
                             tracing::error!(
                                 "Server {} preprocessing timeout - client {} cannot proceed after {:?}",
                                 party_id,
                                 client_id,
-                                timeout_duration
+                                preprocessing_wait_timeout
                             );
                             return Err(Error::Timeout(format!(
                                 "Server preprocessing timeout after {:?} - MPC engine not ready",
-                                timeout_duration
+                                preprocessing_wait_timeout
                             )));
                         }
 
                         // Log progress every 5 seconds
-                        if last_log.elapsed() > std::time::Duration::from_secs(5) {
+                        if last_log.elapsed() > Duration::from_secs(5) {
                             tracing::info!(
                                 "Server {} still waiting for preprocessing ({:.1}s elapsed), client {} queued",
                                 party_id,
@@ -1158,7 +1188,7 @@ impl StoffelServer {
                             last_log = std::time::Instant::now();
                         }
 
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        tokio::time::sleep(Duration::from_millis(100)).await;
                     }
 
                     tracing::info!(
