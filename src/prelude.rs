@@ -55,7 +55,6 @@ pub use crate::mpcaas::{
     StoffelServer, StoffelServerBuilder, ServerState,
     // Async computation handle
     ComputationHandle,
-    // Peer and client management (for server implementations)
-    PeerManager, PeerState, PeerInfo, DiscoveryMode, PartyId,
+    // Client management (for server implementations)
     ClientHandler, ClientId,
 };

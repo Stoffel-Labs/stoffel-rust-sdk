@@ -62,7 +62,6 @@ pub mod client;
 pub mod server;
 pub mod protocol;
 pub mod client_handler;
-pub mod peer_manager;
 pub mod handle;
 
 // Client API
@@ -73,5 +72,4 @@ pub use server::{StoffelServer, StoffelServerBuilder, ServerState};
 
 // Supporting types
 pub use handle::ComputationHandle;
-pub use peer_manager::{PeerManager, PeerState, PeerInfo, DiscoveryMode, PartyId};
 pub use client_handler::{ClientHandler, ClientId};

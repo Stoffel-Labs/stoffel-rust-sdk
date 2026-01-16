@@ -42,7 +42,6 @@
 
 use super::client_handler::ClientHandler;
 use super::protocol::{MPCaaSMessage, serialize_message, deserialize_message};
-use super::peer_manager::{DiscoveryMode, PeerManager};
 use crate::program::Program;
 use crate::{Error, Result};
 use std::net::SocketAddr;
@@ -356,19 +355,12 @@ impl StoffelServerBuilder {
         let bind_address = self.bind_address
             .ok_or_else(|| Error::Configuration("No bind address specified".to_string()))?;
 
-        // Determine peer discovery mode
-        let discovery_mode = if let Some(signaling) = self.signaling_server {
-            DiscoveryMode::SignalingServer {
-                address: signaling,
-                stun: self.stun_server,
-            }
-        } else if !self.peers.is_empty() {
-            DiscoveryMode::Explicit(self.peers.clone())
-        } else {
+        // Validate peer configuration
+        if self.peers.is_empty() {
             return Err(Error::Configuration(
-                "Either peers or signaling server must be specified".to_string()
+                "Peers must be specified".to_string()
             ));
-        };
+        }
 
         let program = self.program
             .ok_or_else(|| Error::Configuration("No program specified".to_string()))?;
@@ -407,12 +399,6 @@ impl StoffelServerBuilder {
             )));
         }
 
-        // Create peer manager
-        let peer_manager = PeerManager::new(
-            self.party_id,
-            discovery_mode,
-        );
-
         // Create client handler
         let client_handler = ClientHandler::new();
 
@@ -439,7 +425,7 @@ impl StoffelServerBuilder {
             party_id: self.party_id,
             bind_address,
             program,
-            peer_manager,
+            peer_addresses: self.peers.clone(),
             client_handler,
             state: Arc::new(std::sync::Mutex::new(ServerState::Initialized)),
             n_parties,
@@ -470,8 +456,8 @@ pub struct StoffelServer {
     bind_address: SocketAddr,
     /// The MPC program to execute
     program: Program,
-    /// Peer connection manager
-    peer_manager: PeerManager,
+    /// Peer addresses (party_id, address)
+    peer_addresses: Vec<(usize, SocketAddr)>,
     /// Client connection handler
     client_handler: ClientHandler,
     /// Current server state
@@ -608,7 +594,7 @@ impl StoffelServer {
         println!("Server {} is ready and accepting connections!", self.party_id);
 
         // Spawn background task for peer connections and MPC preprocessing
-        let peer_manager = self.peer_manager.clone();
+        let peer_addresses = self.peer_addresses.clone();
         let network = Arc::clone(&self.network);
         let peer_connections = Arc::clone(&self.peer_connections);
         let party_id = self.party_id;
@@ -632,7 +618,7 @@ impl StoffelServer {
                 instance_id,
                 preprocessing_start_epoch,
                 bind_address,
-                peer_manager,
+                peer_addresses,
                 network,
                 peer_connections,
                 mpc_engine_slot,
@@ -709,31 +695,30 @@ impl StoffelServer {
         instance_id: u64,
         preprocessing_start_epoch: Option<u64>,
         bind_address: std::net::SocketAddr,
-        peer_manager: PeerManager,
+        peer_addresses: Vec<(usize, SocketAddr)>,
         network: Arc<Mutex<QuicNetworkManager>>,
         peer_connections: Arc<Mutex<std::collections::HashMap<usize, Arc<dyn PeerConnection>>>>,
         mpc_engine_slot: Arc<Mutex<Option<Arc<HoneyBadgerMpcEngine>>>>,
         preprocessing_complete: Arc<AtomicBool>,
     ) {
-        let peers = peer_manager.get_all_peers().await;
-        let total_peers = peers.len();
+        let total_peers = peer_addresses.len();
 
         tracing::info!("Server {} starting background peer connections", party_id);
 
         // Step 1: Connect to peer servers with HIGHER party IDs only
         // This avoids race conditions where both peers try to connect simultaneously
         // Peers with lower IDs will connect TO us, we connect TO peers with higher IDs
-        for peer in &peers {
+        for (peer_id, address) in &peer_addresses {
             // Skip self and peers with lower or equal IDs
-            if peer.party_id <= party_id {
+            if *peer_id <= party_id {
                 continue;
             }
 
             tracing::info!(
                 "Server {} attempting to connect to peer {} at {}",
                 party_id,
-                peer.party_id,
-                peer.address
+                peer_id,
+                address
             );
 
             // Try to connect with a timeout
@@ -741,25 +726,25 @@ impl StoffelServer {
                 let mut net = network.lock().await;
                 tokio::time::timeout(
                     std::time::Duration::from_secs(2),
-                    net.connect_as_server(peer.address, party_id)
+                    net.connect_as_server(*address, party_id)
                 ).await
             };
 
             match connect_result {
                 Ok(Ok(conn)) => {
                     let mut conns = peer_connections.lock().await;
-                    conns.insert(peer.party_id, conn);
+                    conns.insert(*peer_id, conn);
                     tracing::info!(
                         "Server {} connected to peer {}",
                         party_id,
-                        peer.party_id
+                        peer_id
                     );
                 }
                 Ok(Err(e)) => {
                     tracing::warn!(
                         "Server {} failed to connect to peer {}: {}",
                         party_id,
-                        peer.party_id,
+                        peer_id,
                         e
                     );
                 }
@@ -767,7 +752,7 @@ impl StoffelServer {
                     tracing::warn!(
                         "Server {} timed out connecting to peer {}",
                         party_id,
-                        peer.party_id
+                        peer_id
                     );
                 }
             }
@@ -809,18 +794,18 @@ impl StoffelServer {
         // CRITICAL: Register ALL peer parties in the party map BEFORE connecting/preprocessing
         // Without this, MPC protocol fails with PartyNotFound when broadcasting to peers
         // This matches the pattern in StoffelVM's mpc_multiplication_integration.rs:128-140
-        for peer in &peers {
-            let peer_mpc_port = peer.address.port() + 1000;
-            let peer_mpc_addr = std::net::SocketAddr::new(peer.address.ip(), peer_mpc_port);
-            mpc_network.add_node_with_party_id(peer.party_id, peer_mpc_addr);
+        for (peer_id, address) in &peer_addresses {
+            let peer_mpc_port = address.port() + 1000;
+            let peer_mpc_addr = std::net::SocketAddr::new(address.ip(), peer_mpc_port);
+            mpc_network.add_node_with_party_id(*peer_id, peer_mpc_addr);
             tracing::debug!(
                 "Server {} registered peer {} at {} in MPC party map",
-                party_id, peer.party_id, peer_mpc_addr
+                party_id, peer_id, peer_mpc_addr
             );
         }
         tracing::info!(
             "Server {} registered {} parties in MPC network (self + {} peers)",
-            party_id, peers.len() + 1, peers.len()
+            party_id, peer_addresses.len() + 1, peer_addresses.len()
         );
 
         // Ensure loopback connection exists for self-delivery
@@ -891,18 +876,18 @@ impl StoffelServer {
         });
 
         // Connect to peers with HIGHER party IDs (on their MPC ports)
-        for peer in &peers {
-            if peer.party_id <= party_id {
+        for (peer_id, address) in &peer_addresses {
+            if *peer_id <= party_id {
                 continue;
             }
 
-            let peer_mpc_port = peer.address.port() + 1000;
-            let peer_mpc_addr = std::net::SocketAddr::new(peer.address.ip(), peer_mpc_port);
+            let peer_mpc_port = address.port() + 1000;
+            let peer_mpc_addr = std::net::SocketAddr::new(address.ip(), peer_mpc_port);
 
             tracing::info!(
                 "Server {} MPC network connecting to peer {} at {}",
                 party_id,
-                peer.party_id,
+                peer_id,
                 peer_mpc_addr
             );
 
@@ -927,20 +912,20 @@ impl StoffelServer {
 
                 match connect_result {
                     Ok(Ok(_)) => {
-                        tracing::info!("Server {} MPC network connected to peer {}", party_id, peer.party_id);
+                        tracing::info!("Server {} MPC network connected to peer {}", party_id, peer_id);
                         connected = true;
                     }
                     Ok(Err(e)) => {
                         tracing::debug!(
                             "Server {} MPC network attempt {} failed to connect to peer {}: {}",
-                            party_id, retry_count + 1, peer.party_id, e
+                            party_id, retry_count + 1, peer_id, e
                         );
                         retry_count += 1;
                     }
                     Err(_) => {
                         tracing::debug!(
                             "Server {} MPC network attempt {} timed out connecting to peer {}",
-                            party_id, retry_count + 1, peer.party_id
+                            party_id, retry_count + 1, peer_id
                         );
                         retry_count += 1;
                     }
@@ -950,7 +935,7 @@ impl StoffelServer {
             if !connected {
                 tracing::warn!(
                     "Server {} MPC network failed to connect to peer {} after {} retries",
-                    party_id, peer.party_id, max_retries
+                    party_id, peer_id, max_retries
                 );
             }
         }
