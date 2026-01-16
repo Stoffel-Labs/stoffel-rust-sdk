@@ -25,9 +25,7 @@
 //!   |                                |
 //!   |<-- HoneyBadger messages ------>| (masked input protocol)
 //!   |                                |
-//!   |<-- ComputationComplete --------|
-//!   |                                |
-//!   |<-- HoneyBadger messages -------| (output shares)
+//!   |<-- HoneyBadger Output -------->| (output shares signal completion)
 //!   |                                |
 //! ```
 
@@ -71,15 +69,6 @@ pub enum MPCaaSMessage {
     /// In HoneyBadger, party 0 typically coordinates. This message
     /// signals all parties to begin the computation phase.
     ComputationTrigger {
-        /// Session identifier for this computation
-        session_id: u64,
-    },
-
-    /// Computation complete notification
-    ///
-    /// Sent by servers to inform clients that the MPC computation
-    /// has finished and output shares are available.
-    ComputationComplete {
         /// Session identifier for this computation
         session_id: u64,
     },

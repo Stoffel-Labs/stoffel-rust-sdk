@@ -1456,25 +1456,8 @@ impl StoffelServer {
                     }
                 }
 
-                // Generate a session ID for this computation
-                let session_id = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0);
-
-                let complete_msg = MPCaaSMessage::ComputationComplete { session_id };
-                let complete_data = serialize_message(&complete_msg)
-                    .map_err(|e| Error::Network(format!("Failed to serialize ComputationComplete: {}", e)))?;
-
-                conn.send(&complete_data).await
-                    .map_err(|e| Error::Network(format!("Failed to send ComputationComplete: {}", e)))?;
-
-                tracing::info!(
-                    "Server {} sent ComputationComplete to client {} (session {})",
-                    party_id,
-                    client_id,
-                    session_id
-                );
+                // Output shares sent via OutputMessage above serve as the completion signal
+                // (No separate ComputationComplete message needed)
             }
             _ => {
                 tracing::warn!(
