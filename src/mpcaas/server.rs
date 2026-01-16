@@ -42,7 +42,6 @@
 
 use super::client_handler::ClientHandler;
 use super::protocol::{MPCaaSMessage, serialize_message, deserialize_message};
-use super::peer_manager::{DiscoveryMode, PeerManager};
 use crate::program::Program;
 use crate::{Error, Result};
 use std::net::SocketAddr;
@@ -50,17 +49,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 use stoffelnet::transports::quic::{QuicNetworkManager, NetworkManager, PeerConnection};
-
-/// Connection type for incoming connections
-/// Note: Peer connections are established outbound, so incoming connections are always clients
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConnectionType {
-    /// Client connection (sends inputs, receives outputs)
-    Client,
-    /// Server/peer connection (participates in MPC)
-    #[allow(dead_code)]
-    Server,
-}
 
 // StoffelVM MPC engine and VM
 use stoffel_vm::net::hb_engine::HoneyBadgerMpcEngine;
@@ -124,6 +112,10 @@ pub struct StoffelServerBuilder {
     /// Absolute epoch time (seconds since Unix epoch) when preprocessing should start
     /// All servers MUST use the same value for coordinated preprocessing start
     preprocessing_start_epoch: Option<u64>,
+    /// Byzantine fault tolerance threshold (if None, defaults to maximum)
+    threshold: Option<usize>,
+    /// Timeout for clients waiting for preprocessing to complete (default: 60 seconds)
+    preprocessing_wait_timeout: Duration,
 }
 
 impl StoffelServerBuilder {
@@ -140,6 +132,8 @@ impl StoffelServerBuilder {
             n_random_shares: 20,
             instance_id: None,
             preprocessing_start_epoch: None,
+            threshold: None,
+            preprocessing_wait_timeout: Duration::from_secs(60),
         }
     }
 
@@ -304,6 +298,51 @@ impl StoffelServerBuilder {
         self
     }
 
+    /// Set the Byzantine fault tolerance threshold explicitly.
+    ///
+    /// The threshold determines how many faulty parties the protocol can tolerate.
+    /// For HoneyBadger, the constraint is: n >= 3t + 1
+    ///
+    /// If not set, defaults to **maximum** threshold for the given party count,
+    /// providing the strongest security guarantees.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # fn main() -> Result<()> {
+    /// // Override default: use lower threshold for faster preprocessing (dev only)
+    /// let builder = Stoffel::server(0)
+    ///     .with_threshold(1);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_threshold(mut self, t: usize) -> Self {
+        self.threshold = Some(t);
+        self
+    }
+
+    /// Set the timeout for clients waiting for preprocessing to complete.
+    ///
+    /// If a client connects before preprocessing finishes, they will wait up to
+    /// this duration. Default is 60 seconds.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stoffel_rust_sdk::prelude::*;
+    /// # use std::time::Duration;
+    /// # fn main() -> Result<()> {
+    /// let builder = Stoffel::server(0)
+    ///     .with_preprocessing_wait_timeout(Duration::from_secs(120));
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_preprocessing_wait_timeout(mut self, timeout: Duration) -> Self {
+        self.preprocessing_wait_timeout = timeout;
+        self
+    }
+
     /// Build the MPC server
     ///
     /// # Errors
@@ -316,32 +355,49 @@ impl StoffelServerBuilder {
         let bind_address = self.bind_address
             .ok_or_else(|| Error::Configuration("No bind address specified".to_string()))?;
 
-        // Determine peer discovery mode
-        let discovery_mode = if let Some(signaling) = self.signaling_server {
-            DiscoveryMode::SignalingServer {
-                address: signaling,
-                stun: self.stun_server,
-            }
-        } else if !self.peers.is_empty() {
-            DiscoveryMode::Explicit(self.peers.clone())
-        } else {
+        // Validate peer configuration
+        if self.peers.is_empty() {
             return Err(Error::Configuration(
-                "Either peers or signaling server must be specified".to_string()
+                "Peers must be specified".to_string()
             ));
-        };
+        }
 
         let program = self.program
             .ok_or_else(|| Error::Configuration("No program specified".to_string()))?;
 
         // Calculate n_parties from peers + self
         let n_parties = self.peers.len() + 1;
-        let threshold = 1; // Default threshold
 
-        // Create peer manager
-        let peer_manager = PeerManager::new(
-            self.party_id,
-            discovery_mode,
-        );
+        // Default to MAXIMUM threshold for maximum fault tolerance.
+        //
+        // JUSTIFICATION: The threshold determines Byzantine fault tolerance - how many
+        // malicious or crashed parties the protocol can tolerate. Defaulting to maximum
+        // (t = (n-1)/3) provides the strongest security guarantees by default.
+        //
+        // This matches the CLI behavior (stoffel dev/run/test) which also defaults to
+        // maximum threshold. Users who need faster preprocessing for development can
+        // explicitly set a lower threshold via .with_threshold(1).
+        //
+        // Trade-off: Higher threshold increases preprocessing cost, but security should
+        // not be silently compromised for performance. Explicit opt-in to lower security
+        // is the safer pattern.
+        //
+        // Formula: For HoneyBadger, n >= 3t + 1, so max t = (n-1)/3
+        let threshold = self.threshold.unwrap_or_else(|| {
+            if n_parties < 4 {
+                1  // Minimum for small networks
+            } else {
+                (n_parties - 1) / 3  // Maximum fault tolerance
+            }
+        });
+
+        // Validate threshold constraint: HoneyBadger requires n >= 3t + 1
+        if n_parties < 3 * threshold + 1 {
+            return Err(Error::Configuration(format!(
+                "HoneyBadger requires n >= 3t+1. Got n={}, t={}. Max threshold for {} parties is {}.",
+                n_parties, threshold, n_parties, (n_parties - 1) / 3
+            )));
+        }
 
         // Create client handler
         let client_handler = ClientHandler::new();
@@ -369,7 +425,7 @@ impl StoffelServerBuilder {
             party_id: self.party_id,
             bind_address,
             program,
-            peer_manager,
+            peer_addresses: self.peers.clone(),
             client_handler,
             state: Arc::new(std::sync::Mutex::new(ServerState::Initialized)),
             n_parties,
@@ -383,6 +439,7 @@ impl StoffelServerBuilder {
             mpc_engine: Arc::new(Mutex::new(None)),
             preprocessing_complete: Arc::new(AtomicBool::new(false)),
             preprocessing_start_epoch: self.preprocessing_start_epoch,
+            preprocessing_wait_timeout: self.preprocessing_wait_timeout,
         })
     }
 }
@@ -399,8 +456,8 @@ pub struct StoffelServer {
     bind_address: SocketAddr,
     /// The MPC program to execute
     program: Program,
-    /// Peer connection manager
-    peer_manager: PeerManager,
+    /// Peer addresses (party_id, address)
+    peer_addresses: Vec<(usize, SocketAddr)>,
     /// Client connection handler
     client_handler: ClientHandler,
     /// Current server state
@@ -427,6 +484,8 @@ pub struct StoffelServer {
     preprocessing_complete: Arc<AtomicBool>,
     /// Absolute epoch time when preprocessing should start (None = use relative delays)
     preprocessing_start_epoch: Option<u64>,
+    /// Timeout for clients waiting for preprocessing to complete
+    preprocessing_wait_timeout: Duration,
 }
 
 impl StoffelServer {
@@ -535,7 +594,7 @@ impl StoffelServer {
         println!("Server {} is ready and accepting connections!", self.party_id);
 
         // Spawn background task for peer connections and MPC preprocessing
-        let peer_manager = self.peer_manager.clone();
+        let peer_addresses = self.peer_addresses.clone();
         let network = Arc::clone(&self.network);
         let peer_connections = Arc::clone(&self.peer_connections);
         let party_id = self.party_id;
@@ -559,7 +618,7 @@ impl StoffelServer {
                 instance_id,
                 preprocessing_start_epoch,
                 bind_address,
-                peer_manager,
+                peer_addresses,
                 network,
                 peer_connections,
                 mpc_engine_slot,
@@ -601,6 +660,7 @@ impl StoffelServer {
                 let mpc_engine = Arc::clone(&self.mpc_engine);
                 let preprocessing_complete = Arc::clone(&self.preprocessing_complete);
                 let program_bytecode = self.program.bytecode().to_vec();
+                let preprocessing_wait_timeout = self.preprocessing_wait_timeout;
 
                 tokio::spawn(async move {
                     if let Err(e) = Self::handle_incoming_connection(
@@ -614,6 +674,7 @@ impl StoffelServer {
                         mpc_engine,
                         preprocessing_complete,
                         program_bytecode,
+                        preprocessing_wait_timeout,
                     ).await {
                         tracing::error!("Server {} connection handler error: {}", party_id, e);
                     }
@@ -634,31 +695,30 @@ impl StoffelServer {
         instance_id: u64,
         preprocessing_start_epoch: Option<u64>,
         bind_address: std::net::SocketAddr,
-        peer_manager: PeerManager,
+        peer_addresses: Vec<(usize, SocketAddr)>,
         network: Arc<Mutex<QuicNetworkManager>>,
         peer_connections: Arc<Mutex<std::collections::HashMap<usize, Arc<dyn PeerConnection>>>>,
         mpc_engine_slot: Arc<Mutex<Option<Arc<HoneyBadgerMpcEngine>>>>,
         preprocessing_complete: Arc<AtomicBool>,
     ) {
-        let peers = peer_manager.get_all_peers().await;
-        let total_peers = peers.len();
+        let total_peers = peer_addresses.len();
 
         tracing::info!("Server {} starting background peer connections", party_id);
 
         // Step 1: Connect to peer servers with HIGHER party IDs only
         // This avoids race conditions where both peers try to connect simultaneously
         // Peers with lower IDs will connect TO us, we connect TO peers with higher IDs
-        for peer in &peers {
+        for (peer_id, address) in &peer_addresses {
             // Skip self and peers with lower or equal IDs
-            if peer.party_id <= party_id {
+            if *peer_id <= party_id {
                 continue;
             }
 
             tracing::info!(
                 "Server {} attempting to connect to peer {} at {}",
                 party_id,
-                peer.party_id,
-                peer.address
+                peer_id,
+                address
             );
 
             // Try to connect with a timeout
@@ -666,25 +726,25 @@ impl StoffelServer {
                 let mut net = network.lock().await;
                 tokio::time::timeout(
                     std::time::Duration::from_secs(2),
-                    net.connect_as_server(peer.address, party_id)
+                    net.connect_as_server(*address, party_id)
                 ).await
             };
 
             match connect_result {
                 Ok(Ok(conn)) => {
                     let mut conns = peer_connections.lock().await;
-                    conns.insert(peer.party_id, conn);
+                    conns.insert(*peer_id, conn);
                     tracing::info!(
                         "Server {} connected to peer {}",
                         party_id,
-                        peer.party_id
+                        peer_id
                     );
                 }
                 Ok(Err(e)) => {
                     tracing::warn!(
                         "Server {} failed to connect to peer {}: {}",
                         party_id,
-                        peer.party_id,
+                        peer_id,
                         e
                     );
                 }
@@ -692,7 +752,7 @@ impl StoffelServer {
                     tracing::warn!(
                         "Server {} timed out connecting to peer {}",
                         party_id,
-                        peer.party_id
+                        peer_id
                     );
                 }
             }
@@ -734,18 +794,18 @@ impl StoffelServer {
         // CRITICAL: Register ALL peer parties in the party map BEFORE connecting/preprocessing
         // Without this, MPC protocol fails with PartyNotFound when broadcasting to peers
         // This matches the pattern in StoffelVM's mpc_multiplication_integration.rs:128-140
-        for peer in &peers {
-            let peer_mpc_port = peer.address.port() + 1000;
-            let peer_mpc_addr = std::net::SocketAddr::new(peer.address.ip(), peer_mpc_port);
-            mpc_network.add_node_with_party_id(peer.party_id, peer_mpc_addr);
+        for (peer_id, address) in &peer_addresses {
+            let peer_mpc_port = address.port() + 1000;
+            let peer_mpc_addr = std::net::SocketAddr::new(address.ip(), peer_mpc_port);
+            mpc_network.add_node_with_party_id(*peer_id, peer_mpc_addr);
             tracing::debug!(
                 "Server {} registered peer {} at {} in MPC party map",
-                party_id, peer.party_id, peer_mpc_addr
+                party_id, peer_id, peer_mpc_addr
             );
         }
         tracing::info!(
             "Server {} registered {} parties in MPC network (self + {} peers)",
-            party_id, peers.len() + 1, peers.len()
+            party_id, peer_addresses.len() + 1, peer_addresses.len()
         );
 
         // Ensure loopback connection exists for self-delivery
@@ -816,18 +876,18 @@ impl StoffelServer {
         });
 
         // Connect to peers with HIGHER party IDs (on their MPC ports)
-        for peer in &peers {
-            if peer.party_id <= party_id {
+        for (peer_id, address) in &peer_addresses {
+            if *peer_id <= party_id {
                 continue;
             }
 
-            let peer_mpc_port = peer.address.port() + 1000;
-            let peer_mpc_addr = std::net::SocketAddr::new(peer.address.ip(), peer_mpc_port);
+            let peer_mpc_port = address.port() + 1000;
+            let peer_mpc_addr = std::net::SocketAddr::new(address.ip(), peer_mpc_port);
 
             tracing::info!(
                 "Server {} MPC network connecting to peer {} at {}",
                 party_id,
-                peer.party_id,
+                peer_id,
                 peer_mpc_addr
             );
 
@@ -852,20 +912,20 @@ impl StoffelServer {
 
                 match connect_result {
                     Ok(Ok(_)) => {
-                        tracing::info!("Server {} MPC network connected to peer {}", party_id, peer.party_id);
+                        tracing::info!("Server {} MPC network connected to peer {}", party_id, peer_id);
                         connected = true;
                     }
                     Ok(Err(e)) => {
                         tracing::debug!(
                             "Server {} MPC network attempt {} failed to connect to peer {}: {}",
-                            party_id, retry_count + 1, peer.party_id, e
+                            party_id, retry_count + 1, peer_id, e
                         );
                         retry_count += 1;
                     }
                     Err(_) => {
                         tracing::debug!(
                             "Server {} MPC network attempt {} timed out connecting to peer {}",
-                            party_id, retry_count + 1, peer.party_id
+                            party_id, retry_count + 1, peer_id
                         );
                         retry_count += 1;
                     }
@@ -875,7 +935,7 @@ impl StoffelServer {
             if !connected {
                 tracing::warn!(
                     "Server {} MPC network failed to connect to peer {} after {} retries",
-                    party_id, peer.party_id, max_retries
+                    party_id, peer_id, max_retries
                 );
             }
         }
@@ -1016,7 +1076,10 @@ impl StoffelServer {
         }
     }
 
-    /// Handle an incoming connection (determine if client or peer)
+    /// Handle an incoming client connection.
+    ///
+    /// Note: Incoming connections are always from clients. Peer connections are
+    /// established outbound in `connect_to_peers_and_preprocess`.
     async fn handle_incoming_connection(
         conn: Arc<dyn PeerConnection>,
         party_id: usize,
@@ -1028,395 +1091,364 @@ impl StoffelServer {
         mpc_engine: Arc<Mutex<Option<Arc<HoneyBadgerMpcEngine>>>>,
         preprocessing_complete: Arc<AtomicBool>,
         program_bytecode: Vec<u8>,
+        preprocessing_wait_timeout: Duration,
     ) -> Result<()> {
         tracing::info!(
-            "Server {} received connection from {}",
+            "Server {} received client connection from {}",
             party_id,
             conn.remote_address()
         );
 
-        // Determine connection type
-        // Note: Incoming connections are always from clients (peer connections are outbound)
-        let conn_type = ConnectionType::Client;
+        // Send ServerInfo to client
+        let server_info = MPCaaSMessage::ServerInfo {
+            n_parties,
+            threshold,
+            instance_id,
+            party_id,
+        };
 
-        match conn_type {
-            ConnectionType::Client => {
-                // This is a client connection - send ServerInfo
-                tracing::info!("Server {} handling client connection", party_id);
+        let data = serialize_message(&server_info)
+            .map_err(|e| Error::Network(format!("Failed to serialize ServerInfo: {}", e)))?;
 
-                let server_info = MPCaaSMessage::ServerInfo {
-                    n_parties,
-                    threshold,
-                    instance_id,
+        conn.send(&data).await
+            .map_err(|e| Error::Network(format!("Failed to send ServerInfo: {}", e)))?;
+
+        // Wait for ClientReady message
+        let response = conn.receive().await
+            .map_err(|e| Error::Network(format!("Failed to receive ClientReady: {}", e)))?;
+
+        let (msg, _) = deserialize_message(&response)
+            .map_err(|e| Error::Network(format!("Failed to deserialize message: {}", e)))?;
+
+        match msg {
+            MPCaaSMessage::ClientReady { client_id, num_inputs } => {
+                tracing::info!(
+                    "Server {} received ClientReady from client {} with {} inputs",
                     party_id,
+                    client_id,
+                    num_inputs
+                );
+
+                // Store client connection
+                {
+                    let mut clients = client_connections.lock().await;
+                    clients.insert(client_id, Arc::clone(&conn));
+                }
+
+                // Check if preprocessing is complete
+                if !preprocessing_complete.load(Ordering::SeqCst) {
+                    tracing::warn!(
+                        "Server {} preprocessing not complete, client {} must wait (timeout: {:?})",
+                        party_id,
+                        client_id,
+                        preprocessing_wait_timeout
+                    );
+
+                    // Wait for preprocessing to complete (with configurable timeout)
+                    let start = std::time::Instant::now();
+                    let mut last_log = std::time::Instant::now();
+
+                    while !preprocessing_complete.load(Ordering::SeqCst) {
+                        if start.elapsed() > preprocessing_wait_timeout {
+                            tracing::error!(
+                                "Server {} preprocessing timeout - client {} cannot proceed after {:?}",
+                                party_id,
+                                client_id,
+                                preprocessing_wait_timeout
+                            );
+                            return Err(Error::Timeout(format!(
+                                "Server preprocessing timeout after {:?} - MPC engine not ready",
+                                preprocessing_wait_timeout
+                            )));
+                        }
+
+                        // Log progress every 5 seconds
+                        if last_log.elapsed() > Duration::from_secs(5) {
+                            tracing::info!(
+                                "Server {} still waiting for preprocessing ({:.1}s elapsed), client {} queued",
+                                party_id,
+                                start.elapsed().as_secs_f64(),
+                                client_id
+                            );
+                            last_log = std::time::Instant::now();
+                        }
+
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+
+                    tracing::info!(
+                        "Server {} preprocessing completed after {:?}, proceeding with client {}",
+                        party_id,
+                        start.elapsed(),
+                        client_id
+                    );
+                }
+
+                // Get the MPC engine
+                let engine = {
+                    let guard = mpc_engine.lock().await;
+                    guard.clone().ok_or_else(|| Error::Preprocessing(
+                        "MPC engine not initialized".to_string()
+                    ))?
                 };
 
-                let data = serialize_message(&server_info)
-                    .map_err(|e| Error::Network(format!("Failed to serialize ServerInfo: {}", e)))?;
+                tracing::info!(
+                    "Server {} starting input protocol for client {} with {} inputs",
+                    party_id,
+                    client_id,
+                    num_inputs
+                );
 
-                conn.send(&data).await
-                    .map_err(|e| Error::Network(format!("Failed to send ServerInfo: {}", e)))?;
+                // Send MaskShare to client manually
+                // NOTE: We can't use engine.init_client_input() directly because it tries
+                // to send via the MPC engine's internal network, but the client is connected
+                // to this server's network. So we manually:
+                // 1. Take random shares from preprocessing material
+                // 2. Store them locally for unmasking later
+                // 3. Send them to the client via the connection we have
 
-                // Wait for ClientReady message
-                let response = conn.receive().await
-                    .map_err(|e| Error::Network(format!("Failed to receive ClientReady: {}", e)))?;
+                use stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare;
+                use stoffelmpc_mpc::honeybadger::input::{InputMessage, InputMessageType};
+                use stoffelmpc_mpc::honeybadger::WrappedMessage;
+                use ark_bls12_381::Fr;
+                use ark_serialize::CanonicalSerialize;
 
-                let (msg, _) = deserialize_message(&response)
-                    .map_err(|e| Error::Network(format!("Failed to deserialize message: {}", e)))?;
+                // Get random shares from preprocessing material
+                let local_shares: Vec<RobustShare<Fr>> = {
+                    let mpc_node = engine.node_clone().await;
+                    let mut prep_material = mpc_node.preprocessing_material.lock().await;
+                    prep_material
+                        .take_random_shares(num_inputs)
+                        .map_err(|e| Error::Preprocessing(format!(
+                            "Not enough random shares for {} inputs: {:?}", num_inputs, e
+                        )))?
+                };
 
-                match msg {
-                    MPCaaSMessage::ClientReady { client_id, num_inputs } => {
+                tracing::info!(
+                    "Server {} got {} random shares from preprocessing for client {}",
+                    party_id,
+                    local_shares.len(),
+                    client_id
+                );
+
+                // Store local shares for later unmasking (via the engine's input server)
+                {
+                    let mpc_node = engine.node_clone().await;
+                    let mut share_store = mpc_node.preprocess.input.local_mask_shares.lock().await;
+                    share_store.insert(client_id, local_shares.clone());
+                    tracing::debug!("Server {} stored local mask shares for client {}", party_id, client_id);
+                }
+
+                // Serialize shares and send to client
+                let mut payload = Vec::new();
+                local_shares.serialize_compressed(&mut payload)
+                    .map_err(|e| Error::MPCError(format!("Failed to serialize MaskShare: {:?}", e)))?;
+
+                let input_msg = InputMessage::new(
+                    party_id,  // sender_id
+                    InputMessageType::MaskShare,
+                    payload,
+                );
+                let wrapped = WrappedMessage::Input(input_msg);
+                let hb_bytes = bincode::serialize(&wrapped)
+                    .map_err(|e| Error::MPCError(format!("Failed to serialize HB message: {}", e)))?;
+
+                let mask_share_msg = MPCaaSMessage::HoneyBadger(hb_bytes);
+                let mask_share_data = serialize_message(&mask_share_msg)
+                    .map_err(|e| Error::Network(format!("Failed to serialize MaskShare message: {}", e)))?;
+
+                conn.send(&mask_share_data).await
+                    .map_err(|e| Error::Network(format!(
+                        "Failed to send MaskShare to client {}: {}", client_id, e
+                    )))?;
+
+                tracing::info!(
+                    "Server {} sent MaskShare ({} bytes) to client {}",
+                    party_id,
+                    mask_share_data.len(),
+                    client_id
+                );
+
+                // Wait for MaskedInput from client
+                // The client will send this after reconstructing r and computing m+r
+                tracing::info!(
+                    "Server {} waiting for MaskedInput from client {}",
+                    party_id,
+                    client_id
+                );
+
+                let masked_response = conn.receive().await
+                    .map_err(|e| Error::Network(format!("Failed to receive MaskedInput: {}", e)))?;
+
+                let (masked_msg, _) = deserialize_message(&masked_response)
+                    .map_err(|e| Error::Network(format!("Failed to deserialize MaskedInput: {}", e)))?;
+
+                match masked_msg {
+                    MPCaaSMessage::HoneyBadger(hb_data) => {
                         tracing::info!(
-                            "Server {} received ClientReady from client {} with {} inputs",
+                            "Server {} received HoneyBadger message ({} bytes) from client {}",
                             party_id,
-                            client_id,
-                            num_inputs
+                            hb_data.len(),
+                            client_id
                         );
 
-                        // Store client connection
-                        {
-                            let mut clients = client_connections.lock().await;
-                            clients.insert(client_id, Arc::clone(&conn));
-                        }
-
-                        // Check if preprocessing is complete
-                        if !preprocessing_complete.load(Ordering::SeqCst) {
-                            tracing::warn!(
-                                "Server {} preprocessing not complete, client {} must wait",
-                                party_id,
-                                client_id
-                            );
-
-                            // Wait for preprocessing to complete (with timeout)
-                            let timeout_duration = std::time::Duration::from_secs(30);
-                            let start = std::time::Instant::now();
-                            let mut last_log = std::time::Instant::now();
-
-                            while !preprocessing_complete.load(Ordering::SeqCst) {
-                                if start.elapsed() > timeout_duration {
-                                    tracing::error!(
-                                        "Server {} preprocessing timeout - client {} cannot proceed after {:?}",
-                                        party_id,
-                                        client_id,
-                                        timeout_duration
-                                    );
-                                    return Err(Error::Timeout(format!(
-                                        "Server preprocessing timeout after {:?} - MPC engine not ready",
-                                        timeout_duration
-                                    )));
-                                }
-
-                                // Log progress every 5 seconds
-                                if last_log.elapsed() > std::time::Duration::from_secs(5) {
+                        // Deserialize the HoneyBadger message
+                        if let Ok(wrapped) = bincode::deserialize::<stoffelmpc_mpc::honeybadger::WrappedMessage>(&hb_data) {
+                            match wrapped {
+                                stoffelmpc_mpc::honeybadger::WrappedMessage::Input(input_msg) => {
                                     tracing::info!(
-                                        "Server {} still waiting for preprocessing ({:.1}s elapsed), client {} queued",
+                                        "Server {} processing MaskedInput from client {}",
                                         party_id,
-                                        start.elapsed().as_secs_f64(),
                                         client_id
                                     );
-                                    last_log = std::time::Instant::now();
+
+                                    // Process through the MPC engine
+                                    if let Err(e) = engine.process_masked_input(input_msg).await {
+                                        tracing::error!(
+                                            "Server {} failed to process MaskedInput: {}",
+                                            party_id,
+                                            e
+                                        );
+                                        return Err(Error::MPCError(format!("MaskedInput processing failed: {}", e)));
+                                    }
+
+                                    tracing::info!(
+                                        "Server {} stored input shares for client {}",
+                                        party_id,
+                                        client_id
+                                    );
+
+                                    // Check if we have the client's input shares now
+                                    if engine.has_client_input(client_id).await {
+                                        tracing::info!(
+                                            "Server {} confirmed input shares for client {} are stored in engine",
+                                            party_id,
+                                            client_id
+                                        );
+                                    }
                                 }
-
-                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                _ => {
+                                    tracing::warn!(
+                                        "Server {} received non-Input HB message from client {}",
+                                        party_id,
+                                        client_id
+                                    );
+                                }
                             }
-
-                            tracing::info!(
-                                "Server {} preprocessing completed after {:?}, proceeding with client {}",
+                        } else {
+                            tracing::error!(
+                                "Server {} failed to deserialize HB message from client {}",
                                 party_id,
-                                start.elapsed(),
                                 client_id
                             );
                         }
+                    }
+                    _ => {
+                        tracing::warn!(
+                            "Server {} received unexpected message type from client {} (expected MaskedInput)",
+                            party_id,
+                            client_id
+                        );
+                    }
+                }
 
-                        // Get the MPC engine
-                        let engine = {
-                            let guard = mpc_engine.lock().await;
-                            guard.clone().ok_or_else(|| Error::Preprocessing(
-                                "MPC engine not initialized".to_string()
-                            ))?
-                        };
+                // Execute the program with MPC
+                tracing::info!(
+                    "Server {} executing program with MPC for client {}",
+                    party_id,
+                    client_id
+                );
 
+                let computation_result = Self::execute_mpc_program(
+                    party_id,
+                    &engine,
+                    &program_bytecode,
+                    client_id,
+                ).await;
+
+                match &computation_result {
+                    Ok(result) => {
                         tracing::info!(
-                            "Server {} starting input protocol for client {} with {} inputs",
+                            "Server {} completed computation for client {}: {:?}",
                             party_id,
                             client_id,
-                            num_inputs
+                            result
                         );
 
-                        // Send MaskShare to client manually
-                        // NOTE: We can't use engine.init_client_input() directly because it tries
-                        // to send via the MPC engine's internal network, but the client is connected
-                        // to this server's network. So we manually:
-                        // 1. Take random shares from preprocessing material
-                        // 2. Store them locally for unmasking later
-                        // 3. Send them to the client via the connection we have
+                        // If result is a Share, send output shares to client
+                        if let crate::vm::Value::Share(_, share_data) = result {
+                            tracing::info!(
+                                "Server {} sending output share ({} bytes) to client {}",
+                                party_id,
+                                share_data.len(),
+                                client_id
+                            );
 
-                        use stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare;
-                        use stoffelmpc_mpc::honeybadger::input::{InputMessage, InputMessageType};
-                        use stoffelmpc_mpc::honeybadger::WrappedMessage;
-                        use ark_bls12_381::Fr;
-                        use ark_serialize::CanonicalSerialize;
+                            // Send output share directly through client connection
+                            // (The engine's send_output_shares uses internal MPC network which client isn't connected to)
+                            use stoffelmpc_mpc::honeybadger::output::OutputMessage;
+                            use stoffelmpc_mpc::honeybadger::WrappedMessage;
 
-                        // Get random shares from preprocessing material
-                        let local_shares: Vec<RobustShare<Fr>> = {
-                            let mpc_node = engine.node_clone().await;
-                            let mut prep_material = mpc_node.preprocessing_material.lock().await;
-                            prep_material
-                                .take_random_shares(num_inputs)
-                                .map_err(|e| Error::Preprocessing(format!(
-                                    "Not enough random shares for {} inputs: {:?}", num_inputs, e
-                                )))?
-                        };
+                            let output_msg = OutputMessage::new(party_id, share_data.clone());
+                            let wrapped = WrappedMessage::Output(output_msg);
 
-                        tracing::info!(
-                            "Server {} got {} random shares from preprocessing for client {}",
-                            party_id,
-                            local_shares.len(),
-                            client_id
-                        );
-
-                        // Store local shares for later unmasking (via the engine's input server)
-                        {
-                            let mpc_node = engine.node_clone().await;
-                            let mut share_store = mpc_node.preprocess.input.local_mask_shares.lock().await;
-                            share_store.insert(client_id, local_shares.clone());
-                            tracing::debug!("Server {} stored local mask shares for client {}", party_id, client_id);
-                        }
-
-                        // Serialize shares and send to client
-                        let mut payload = Vec::new();
-                        local_shares.serialize_compressed(&mut payload)
-                            .map_err(|e| Error::MPCError(format!("Failed to serialize MaskShare: {:?}", e)))?;
-
-                        let input_msg = InputMessage::new(
-                            party_id,  // sender_id
-                            InputMessageType::MaskShare,
-                            payload,
-                        );
-                        let wrapped = WrappedMessage::Input(input_msg);
-                        let hb_bytes = bincode::serialize(&wrapped)
-                            .map_err(|e| Error::MPCError(format!("Failed to serialize HB message: {}", e)))?;
-
-                        let mask_share_msg = MPCaaSMessage::HoneyBadger(hb_bytes);
-                        let mask_share_data = serialize_message(&mask_share_msg)
-                            .map_err(|e| Error::Network(format!("Failed to serialize MaskShare message: {}", e)))?;
-
-                        conn.send(&mask_share_data).await
-                            .map_err(|e| Error::Network(format!(
-                                "Failed to send MaskShare to client {}: {}", client_id, e
-                            )))?;
-
-                        tracing::info!(
-                            "Server {} sent MaskShare ({} bytes) to client {}",
-                            party_id,
-                            mask_share_data.len(),
-                            client_id
-                        );
-
-                        // Wait for MaskedInput from client
-                        // The client will send this after reconstructing r and computing m+r
-                        tracing::info!(
-                            "Server {} waiting for MaskedInput from client {}",
-                            party_id,
-                            client_id
-                        );
-
-                        let masked_response = conn.receive().await
-                            .map_err(|e| Error::Network(format!("Failed to receive MaskedInput: {}", e)))?;
-
-                        let (masked_msg, _) = deserialize_message(&masked_response)
-                            .map_err(|e| Error::Network(format!("Failed to deserialize MaskedInput: {}", e)))?;
-
-                        match masked_msg {
-                            MPCaaSMessage::HoneyBadger(hb_data) => {
-                                tracing::info!(
-                                    "Server {} received HoneyBadger message ({} bytes) from client {}",
-                                    party_id,
-                                    hb_data.len(),
-                                    client_id
-                                );
-
-                                // Deserialize the HoneyBadger message
-                                if let Ok(wrapped) = bincode::deserialize::<stoffelmpc_mpc::honeybadger::WrappedMessage>(&hb_data) {
-                                    match wrapped {
-                                        stoffelmpc_mpc::honeybadger::WrappedMessage::Input(input_msg) => {
-                                            tracing::info!(
-                                                "Server {} processing MaskedInput from client {}",
-                                                party_id,
-                                                client_id
-                                            );
-
-                                            // Process through the MPC engine
-                                            if let Err(e) = engine.process_masked_input(input_msg).await {
+                            match bincode::serialize(&wrapped) {
+                                Ok(hb_bytes) => {
+                                    let output_share_msg = MPCaaSMessage::HoneyBadger(hb_bytes);
+                                    match serialize_message(&output_share_msg) {
+                                        Ok(output_data) => {
+                                            if let Err(e) = conn.send(&output_data).await {
                                                 tracing::error!(
-                                                    "Server {} failed to process MaskedInput: {}",
+                                                    "Server {} failed to send output share to client {}: {}",
                                                     party_id,
+                                                    client_id,
                                                     e
                                                 );
-                                                return Err(Error::MPCError(format!("MaskedInput processing failed: {}", e)));
-                                            }
-
-                                            tracing::info!(
-                                                "Server {} stored input shares for client {}",
-                                                party_id,
-                                                client_id
-                                            );
-
-                                            // Check if we have the client's input shares now
-                                            if engine.has_client_input(client_id).await {
+                                            } else {
                                                 tracing::info!(
-                                                    "Server {} confirmed input shares for client {} are stored in engine",
+                                                    "Server {} sent output share to client {}",
                                                     party_id,
                                                     client_id
                                                 );
                                             }
                                         }
-                                        _ => {
-                                            tracing::warn!(
-                                                "Server {} received non-Input HB message from client {}",
-                                                party_id,
-                                                client_id
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    tracing::error!(
-                                        "Server {} failed to deserialize HB message from client {}",
-                                        party_id,
-                                        client_id
-                                    );
-                                }
-                            }
-                            _ => {
-                                tracing::warn!(
-                                    "Server {} received unexpected message type from client {} (expected MaskedInput)",
-                                    party_id,
-                                    client_id
-                                );
-                            }
-                        }
-
-                        // Execute the program with MPC
-                        tracing::info!(
-                            "Server {} executing program with MPC for client {}",
-                            party_id,
-                            client_id
-                        );
-
-                        let computation_result = Self::execute_mpc_program(
-                            party_id,
-                            &engine,
-                            &program_bytecode,
-                            client_id,
-                        ).await;
-
-                        match &computation_result {
-                            Ok(result) => {
-                                tracing::info!(
-                                    "Server {} completed computation for client {}: {:?}",
-                                    party_id,
-                                    client_id,
-                                    result
-                                );
-
-                                // If result is a Share, send output shares to client
-                                if let crate::vm::Value::Share(_, share_data) = result {
-                                    tracing::info!(
-                                        "Server {} sending output share ({} bytes) to client {}",
-                                        party_id,
-                                        share_data.len(),
-                                        client_id
-                                    );
-
-                                    // Send output share directly through client connection
-                                    // (The engine's send_output_shares uses internal MPC network which client isn't connected to)
-                                    use stoffelmpc_mpc::honeybadger::output::OutputMessage;
-                                    use stoffelmpc_mpc::honeybadger::WrappedMessage;
-
-                                    let output_msg = OutputMessage::new(party_id, share_data.clone());
-                                    let wrapped = WrappedMessage::Output(output_msg);
-
-                                    match bincode::serialize(&wrapped) {
-                                        Ok(hb_bytes) => {
-                                            let output_share_msg = MPCaaSMessage::HoneyBadger(hb_bytes);
-                                            match serialize_message(&output_share_msg) {
-                                                Ok(output_data) => {
-                                                    if let Err(e) = conn.send(&output_data).await {
-                                                        tracing::error!(
-                                                            "Server {} failed to send output share to client {}: {}",
-                                                            party_id,
-                                                            client_id,
-                                                            e
-                                                        );
-                                                    } else {
-                                                        tracing::info!(
-                                                            "Server {} sent output share to client {}",
-                                                            party_id,
-                                                            client_id
-                                                        );
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    tracing::error!(
-                                                        "Server {} failed to serialize output share message: {}",
-                                                        party_id,
-                                                        e
-                                                    );
-                                                }
-                                            }
-                                        }
                                         Err(e) => {
                                             tracing::error!(
-                                                "Server {} failed to serialize output WrappedMessage: {}",
+                                                "Server {} failed to serialize output share message: {}",
                                                 party_id,
                                                 e
                                             );
                                         }
                                     }
                                 }
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "Server {} computation failed for client {}: {}",
-                                    party_id,
-                                    client_id,
-                                    e
-                                );
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Server {} failed to serialize output WrappedMessage: {}",
+                                        party_id,
+                                        e
+                                    );
+                                }
                             }
                         }
-
-                        // Generate a session ID for this computation
-                        let session_id = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_millis() as u64)
-                            .unwrap_or(0);
-
-                        let complete_msg = MPCaaSMessage::ComputationComplete { session_id };
-                        let complete_data = serialize_message(&complete_msg)
-                            .map_err(|e| Error::Network(format!("Failed to serialize ComputationComplete: {}", e)))?;
-
-                        conn.send(&complete_data).await
-                            .map_err(|e| Error::Network(format!("Failed to send ComputationComplete: {}", e)))?;
-
-                        tracing::info!(
-                            "Server {} sent ComputationComplete to client {} (session {})",
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Server {} computation failed for client {}: {}",
                             party_id,
                             client_id,
-                            session_id
-                        );
-                    }
-                    _ => {
-                        tracing::warn!(
-                            "Server {} received unexpected message from client",
-                            party_id
+                            e
                         );
                     }
                 }
+
+                // Output shares sent via OutputMessage above serve as the completion signal
+                // (No separate ComputationComplete message needed)
             }
-            ConnectionType::Server => {
-                // This is a peer server connection
-                tracing::info!("Server {} accepted peer connection", party_id);
-                // Peer connections are handled through the mesh topology
+            _ => {
+                tracing::warn!(
+                    "Server {} received unexpected message from client",
+                    party_id
+                );
             }
         }
 
@@ -1982,5 +2014,119 @@ mod tests {
             let builder = StoffelServerBuilder::new(party_id);
             assert_eq!(builder.party_id, party_id);
         }
+    }
+
+    // =========================================================================
+    // Threshold Default Tests
+    // =========================================================================
+
+    /// Test with_threshold builder method
+    #[test]
+    fn test_server_builder_with_threshold() {
+        let builder = StoffelServerBuilder::new(0)
+            .with_threshold(2);
+
+        assert_eq!(builder.threshold, Some(2));
+    }
+
+    /// Test default threshold is None in builder
+    #[test]
+    fn test_server_builder_default_threshold_is_none() {
+        let builder = StoffelServerBuilder::new(0);
+        assert_eq!(builder.threshold, None);
+    }
+
+    /// Test maximum threshold calculation formula
+    ///
+    /// For HoneyBadger: max t = (n-1)/3
+    /// - 4 parties → max threshold 1: (4-1)/3 = 1
+    /// - 5 parties → max threshold 1: (5-1)/3 = 1
+    /// - 6 parties → max threshold 1: (6-1)/3 = 1
+    /// - 7 parties → max threshold 2: (7-1)/3 = 2
+    /// - 10 parties → max threshold 3: (10-1)/3 = 3
+    /// - 13 parties → max threshold 4: (13-1)/3 = 4
+    #[test]
+    fn test_max_threshold_calculation() {
+        // Test the formula directly
+        let test_cases = [
+            (4, 1),  // 4 parties → max t=1
+            (5, 1),  // 5 parties → max t=1
+            (6, 1),  // 6 parties → max t=1
+            (7, 2),  // 7 parties → max t=2
+            (8, 2),  // 8 parties → max t=2
+            (9, 2),  // 9 parties → max t=2
+            (10, 3), // 10 parties → max t=3
+            (13, 4), // 13 parties → max t=4
+        ];
+
+        for (n_parties, expected_max_t) in test_cases {
+            let calculated = if n_parties < 4 {
+                1
+            } else {
+                (n_parties - 1) / 3
+            };
+            assert_eq!(
+                calculated, expected_max_t,
+                "For n={}, expected max_t={}, got {}",
+                n_parties, expected_max_t, calculated
+            );
+        }
+    }
+
+    /// Test threshold validation passes for valid configurations
+    #[test]
+    fn test_threshold_validation_valid_configs() {
+        // Valid: n >= 3t + 1
+        let valid_configs = [
+            (4, 1),  // 4 >= 3*1+1 = 4 ✓
+            (5, 1),  // 5 >= 3*1+1 = 4 ✓
+            (7, 2),  // 7 >= 3*2+1 = 7 ✓
+            (8, 2),  // 8 >= 3*2+1 = 7 ✓
+            (10, 3), // 10 >= 3*3+1 = 10 ✓
+        ];
+
+        for (n_parties, threshold) in valid_configs {
+            assert!(
+                n_parties >= 3 * threshold + 1,
+                "Config n={}, t={} should be valid but validation failed",
+                n_parties, threshold
+            );
+        }
+    }
+
+    /// Test threshold validation fails for invalid configurations
+    #[test]
+    fn test_threshold_validation_invalid_configs() {
+        // Invalid: n < 3t + 1
+        let invalid_configs = [
+            (4, 2),  // 4 < 3*2+1 = 7 ✗
+            (5, 2),  // 5 < 3*2+1 = 7 ✗
+            (6, 2),  // 6 < 3*2+1 = 7 ✗
+            (9, 3),  // 9 < 3*3+1 = 10 ✗
+        ];
+
+        for (n_parties, threshold) in invalid_configs {
+            assert!(
+                n_parties < 3 * threshold + 1,
+                "Config n={}, t={} should be invalid but validation passed",
+                n_parties, threshold
+            );
+        }
+    }
+
+    /// Test with_threshold in builder chain
+    #[test]
+    fn test_server_builder_chaining_with_threshold() {
+        let builder = StoffelServerBuilder::new(0)
+            .bind("127.0.0.1:19200")
+            .with_peers(&[(1, "127.0.0.1:19201"), (2, "127.0.0.1:19202")])
+            .with_preprocessing(5, 10)
+            .with_threshold(1)
+            .with_instance_id(999);
+
+        assert!(builder.bind_address.is_some());
+        assert_eq!(builder.peers.len(), 2);
+        assert_eq!(builder.threshold, Some(1));
+        assert_eq!(builder.instance_id, Some(999));
     }
 }

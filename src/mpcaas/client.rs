@@ -566,7 +566,6 @@ impl StoffelClient {
         let mut received_input_shares: HashMap<usize, Vec<RobustShare<Fr>>> = HashMap::new();
         let mut received_output_shares: HashMap<usize, Vec<RobustShare<Fr>>> = HashMap::new();
         let mut masked_input_sent = false;
-        let mut computation_complete_count = 0;
 
         tracing::info!(
             "Client {} waiting for {} MaskShare messages (2t+1)",
@@ -605,59 +604,6 @@ impl StoffelClient {
                         match deserialize_message(&data) {
                             Ok((msg, _)) => {
                                 match msg {
-                                    MPCaaSMessage::ComputationComplete { session_id } => {
-                                        tracing::info!(
-                                            "Client {} received ComputationComplete for session {} from server {}",
-                                            self.client_id, session_id, i
-                                        );
-                                        computation_complete_count += 1;
-
-                                        // Check if we have enough output shares to reconstruct
-                                        if received_output_shares.len() >= required_shares {
-                                            tracing::info!(
-                                                "Client {} has {} output shares, reconstructing result",
-                                                self.client_id,
-                                                received_output_shares.len()
-                                            );
-
-                                            // Reconstruct output (assuming single output value)
-                                            let mut output_share_list: Vec<RobustShare<Fr>> = Vec::new();
-                                            for (_, shares) in received_output_shares.iter() {
-                                                if !shares.is_empty() {
-                                                    output_share_list.push(shares[0].clone());
-                                                }
-                                            }
-
-                                            match RobustShare::recover_secret(&output_share_list, self.n_parties) {
-                                                Ok((_, result)) => {
-                                                    // Convert Fr to i64
-                                                    use ark_ff::PrimeField;
-                                                    let limbs: [u64; 4] = result.into_bigint().0;
-                                                    let result_i64 = limbs[0] as i64;
-                                                    tracing::info!(
-                                                        "Client {} reconstructed output: {}",
-                                                        self.client_id,
-                                                        result_i64
-                                                    );
-                                                    return Ok(vec![result_i64]);
-                                                }
-                                                Err(e) => {
-                                                    return Err(Error::MPCError(format!(
-                                                        "Failed to reconstruct output: {:?}", e
-                                                    )));
-                                                }
-                                            }
-                                        } else {
-                                            // Not enough output shares yet, return inputs as placeholder
-                                            // This happens when server returns cleartext result
-                                            tracing::info!(
-                                                "Client {} received ComputationComplete but only {} output shares",
-                                                self.client_id,
-                                                received_output_shares.len()
-                                            );
-                                            return Ok(inputs.to_vec());
-                                        }
-                                    }
                                     MPCaaSMessage::HoneyBadger(hb_data) => {
                                         tracing::debug!(
                                             "Client {} received HoneyBadger message ({} bytes) from server {}",
@@ -717,6 +663,44 @@ impl StoffelClient {
                                                             "Client {} failed to deserialize output share from server {}",
                                                             self.client_id, output_msg.sender_id
                                                         );
+                                                    }
+
+                                                    // Check if we have enough output shares to reconstruct
+                                                    // OutputMessage serves as both output delivery and completion signal
+                                                    if received_output_shares.len() >= required_shares {
+                                                        tracing::info!(
+                                                            "Client {} has {} output shares, reconstructing result",
+                                                            self.client_id,
+                                                            received_output_shares.len()
+                                                        );
+
+                                                        // Reconstruct output (assuming single output value)
+                                                        let mut output_share_list: Vec<RobustShare<Fr>> = Vec::new();
+                                                        for (_, shares) in received_output_shares.iter() {
+                                                            if !shares.is_empty() {
+                                                                output_share_list.push(shares[0].clone());
+                                                            }
+                                                        }
+
+                                                        match RobustShare::recover_secret(&output_share_list, self.n_parties) {
+                                                            Ok((_, result)) => {
+                                                                // Convert Fr to i64
+                                                                use ark_ff::PrimeField;
+                                                                let limbs: [u64; 4] = result.into_bigint().0;
+                                                                let result_i64 = limbs[0] as i64;
+                                                                tracing::info!(
+                                                                    "Client {} reconstructed output: {}",
+                                                                    self.client_id,
+                                                                    result_i64
+                                                                );
+                                                                return Ok(vec![result_i64]);
+                                                            }
+                                                            Err(e) => {
+                                                                return Err(Error::MPCError(format!(
+                                                                    "Failed to reconstruct output: {:?}", e
+                                                                )));
+                                                            }
+                                                        }
                                                     }
                                                 }
                                                 _ => {

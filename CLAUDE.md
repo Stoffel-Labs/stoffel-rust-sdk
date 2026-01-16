@@ -175,7 +175,6 @@ src/
 │   ├── server.rs       # StoffelServer implementation
 │   ├── protocol.rs     # MPCaaS wire protocol
 │   ├── client_handler.rs # Server-side client handling
-│   ├── peer_manager.rs # Peer connection management
 │   └── handle.rs       # ComputationHandle for async
 │
 ├── program.rs          # Compiled program
