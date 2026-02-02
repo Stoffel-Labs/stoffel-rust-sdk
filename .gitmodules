@@ -4,7 +4,7 @@
 [submodule "external/stoffel-vm"]
 	path = external/stoffel-vm
 	url = https://github.com/Stoffel-Labs/StoffelVM.git
-	branch = runner
+	branch = feature/cspl-vm-builtins
 [submodule "external/mpc-protocols"]
 	path = external/mpc-protocols
 	url = https://github.com/Stoffel-Labs/mpc-protocols.git

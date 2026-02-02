@@ -55,3 +55,7 @@ stoffelnet = { path = "external/stoffel-networking" }
 
 [patch."https://github.com/Stoffel-Labs/mpc-protocols.git"]
 stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
+
+[patch."https://github.com/Stoffel-Labs/StoffelVM.git"]
+stoffel-vm = { path = "external/stoffel-vm/crates/stoffel-vm" }
+stoffel-vm-types = { path = "external/stoffel-vm/crates/stoffel-vm-types" }
