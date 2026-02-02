@@ -49,3 +49,10 @@ pub use crate::secret_sharing::{SecretSharing, SecretShare};
 // Network helpers module is available but types must be imported directly
 // from stoffel_vm for production deployments. See network_helpers module docs.
 pub use crate::network_helpers;
+
+// Coordinator client for MPC job submission
+pub use crate::coordinator::{
+    CoordinatorClient, CoordinatorClientBuilder, CoordinatorClientConfig,
+    JobRequest, JobRequestBuilder, JobType, JobStatus, JobSubmitResponse, JobStatusResponse,
+    ClientInput, CoordinatorStatus, PartyInfo, KeysResponse,
+};

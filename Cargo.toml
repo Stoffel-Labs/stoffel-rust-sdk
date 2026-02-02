@@ -43,6 +43,14 @@ rustls = { version = "0.23" }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3" }
 
+# HTTP client for coordinator API
+reqwest = { version = "0.11", features = ["json"] }
+
+# Serialization
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+base64 = "0.21"
+
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
 
