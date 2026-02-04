@@ -8,15 +8,15 @@ license = "Apache-2.0"
 repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 
 [dependencies]
-# Core Stoffel dependencies (using git submodules for version pinning)
-stoffellang = { path = "external/stoffel-lang" }
-stoffel-vm = { path = "external/stoffel-vm/crates/stoffel-vm" }
-stoffel-vm-types = { path = "external/stoffel-vm/crates/stoffel-vm-types" }
-stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
-stoffelmpc-network = { path = "external/mpc-protocols/network" }
+# Core Stoffel dependencies (using git repos with specific branches)
+stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", branch = "main" }
+stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
+stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
+stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "types-preproc-tmp" }
+stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "types-preproc-tmp" }
 
 # Modern QUIC-based networking
-stoffelnet = { path = "external/stoffel-networking" }
+stoffelnet = { git = "https://github.com/Stoffel-Labs/stoffel-networking.git", branch = "main" }
 
 # Utility dependencies
 anyhow = "1.0"
@@ -49,16 +49,6 @@ tokio = { version = "1.0", features = ["full"] }
 
 [features]
 default = []
-
-# Ensure all dependencies use the same local version of stoffelnet and mpc-protocols
-[patch."https://github.com/Stoffel-Labs/stoffel-networking.git"]
-stoffelnet = { path = "external/stoffel-networking" }
-
-[patch."https://github.com/Stoffel-Labs/mpc-protocols.git"]
-stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
-
-[patch."https://github.com/Stoffel-Labs/StoffelVM.git"]
-stoffel-vm-types = { path = "external/stoffel-vm/crates/stoffel-vm-types" }
 
 [[example]]
 name = "honeybadger_mpc_demo"

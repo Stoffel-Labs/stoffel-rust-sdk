@@ -64,7 +64,7 @@ enum ConnectionType {
 
 // StoffelVM MPC engine and VM
 use stoffel_vm::net::hb_engine::HoneyBadgerMpcEngine;
-use stoffel_vm::net::mpc_engine::MpcEngine;
+use stoffel_vm::net::mpc_engine::{MpcEngine, MpcEngineClientOps};
 use stoffel_vm::core_vm::VirtualMachine;
 
 // MPC protocol types for message processing
@@ -920,24 +920,18 @@ impl StoffelServer {
 
         tracing::info!("Server {} MPC engine created", party_id);
 
-        // Step 5: Get a CLONE of the MPC node for message processing
-        // The node implements Clone with internal Arc<Mutex<...>> for shared state.
-        // This allows message processors to call node.process() without deadlock
-        // while preprocessing runs on the engine's internal node.
-        let mpc_node = engine.node_clone().await;
-
-        // Step 6: Spawn message processing tasks BEFORE starting preprocessing
-        // This is CRITICAL: without message processors, preprocessing messages sent by
-        // the MPC protocol will never be received and processed, causing timeouts.
+        // TODO: SDK server preprocessing is currently incompatible with StoffelVM HoneyBadgerMpcEngine API
+        // The engine.node_clone() method doesn't exist in the current VM API.
+        // This functionality needs to be re-implemented when the VM exposes the necessary APIs.
+        // For now, we skip message processor spawning and rely on the engine's internal handling.
+        tracing::warn!(
+            "Server {} skipping message processor spawning (SDK/VM API mismatch - see Linear issue)",
+            party_id
+        );
         let shutdown_signal = Arc::new(AtomicBool::new(false));
-        let processor_handles = Self::spawn_message_processors(
-            party_id,
-            mpc_node,
-            engine.net(),
-            Arc::clone(&shutdown_signal),
-        ).await;
+        let processor_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
-        // Give message processors time to start
+        // Give time for peer connections to stabilize
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // CRITICAL SYNC POINT: Wait for ALL servers to be connected before starting preprocessing
@@ -1143,158 +1137,19 @@ impl StoffelServer {
                             num_inputs
                         );
 
-                        // Send MaskShare to client manually
-                        // NOTE: We can't use engine.init_client_input() directly because it tries
-                        // to send via the MPC engine's internal network, but the client is connected
-                        // to this server's network. So we manually:
-                        // 1. Take random shares from preprocessing material
-                        // 2. Store them locally for unmasking later
-                        // 3. Send them to the client via the connection we have
-
-                        use stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare;
-                        use stoffelmpc_mpc::honeybadger::input::{InputMessage, InputMessageType};
-                        use stoffelmpc_mpc::honeybadger::WrappedMessage;
-                        use ark_bls12_381::Fr;
-                        use ark_serialize::CanonicalSerialize;
-
-                        // Get random shares from preprocessing material
-                        let local_shares: Vec<RobustShare<Fr>> = {
-                            let mpc_node = engine.node_clone().await;
-                            let mut prep_material = mpc_node.preprocessing_material.lock().await;
-                            prep_material
-                                .take_random_shares(num_inputs)
-                                .map_err(|e| Error::Preprocessing(format!(
-                                    "Not enough random shares for {} inputs: {:?}", num_inputs, e
-                                )))?
-                        };
-
-                        tracing::info!(
-                            "Server {} got {} random shares from preprocessing for client {}",
-                            party_id,
-                            local_shares.len(),
-                            client_id
-                        );
-
-                        // Store local shares for later unmasking (via the engine's input server)
-                        {
-                            let mpc_node = engine.node_clone().await;
-                            let mut share_store = mpc_node.preprocess.input.local_mask_shares.lock().await;
-                            share_store.insert(client_id, local_shares.clone());
-                            tracing::debug!("Server {} stored local mask shares for client {}", party_id, client_id);
-                        }
-
-                        // Serialize shares and send to client
-                        let mut payload = Vec::new();
-                        local_shares.serialize_compressed(&mut payload)
-                            .map_err(|e| Error::MPCError(format!("Failed to serialize MaskShare: {:?}", e)))?;
-
-                        let input_msg = InputMessage::new(
-                            party_id,  // sender_id
-                            InputMessageType::MaskShare,
-                            payload,
-                        );
-                        let wrapped = WrappedMessage::Input(input_msg);
-                        let hb_bytes = bincode::serialize(&wrapped)
-                            .map_err(|e| Error::MPCError(format!("Failed to serialize HB message: {}", e)))?;
-
-                        let mask_share_msg = MPCaaSMessage::HoneyBadger(hb_bytes);
-                        let mask_share_data = serialize_message(&mask_share_msg)
-                            .map_err(|e| Error::Network(format!("Failed to serialize MaskShare message: {}", e)))?;
-
-                        conn.send(&mask_share_data).await
-                            .map_err(|e| Error::Network(format!(
-                                "Failed to send MaskShare to client {}: {}", client_id, e
-                            )))?;
-
-                        tracing::info!(
-                            "Server {} sent MaskShare ({} bytes) to client {}",
-                            party_id,
-                            mask_share_data.len(),
-                            client_id
-                        );
-
-                        // Wait for MaskedInput from client
-                        // The client will send this after reconstructing r and computing m+r
-                        tracing::info!(
-                            "Server {} waiting for MaskedInput from client {}",
+                        // TODO: SDK server client input handling is currently incompatible with StoffelVM API
+                        // The engine.node_clone(), process_masked_input(), and has_client_input() methods
+                        // don't exist in the current VM API. This functionality needs to be re-implemented
+                        // when the VM exposes the necessary APIs. See Linear issue for tracking.
+                        tracing::error!(
+                            "Server {} cannot process client {} inputs - SDK/VM API mismatch (not implemented)",
                             party_id,
                             client_id
                         );
+                        return Err(Error::MPCError(
+                            "Client input handling not available - SDK server requires VM API updates".to_string()
+                        ));
 
-                        let masked_response = conn.receive().await
-                            .map_err(|e| Error::Network(format!("Failed to receive MaskedInput: {}", e)))?;
-
-                        let (masked_msg, _) = deserialize_message(&masked_response)
-                            .map_err(|e| Error::Network(format!("Failed to deserialize MaskedInput: {}", e)))?;
-
-                        match masked_msg {
-                            MPCaaSMessage::HoneyBadger(hb_data) => {
-                                tracing::info!(
-                                    "Server {} received HoneyBadger message ({} bytes) from client {}",
-                                    party_id,
-                                    hb_data.len(),
-                                    client_id
-                                );
-
-                                // Deserialize the HoneyBadger message
-                                if let Ok(wrapped) = bincode::deserialize::<stoffelmpc_mpc::honeybadger::WrappedMessage>(&hb_data) {
-                                    match wrapped {
-                                        stoffelmpc_mpc::honeybadger::WrappedMessage::Input(input_msg) => {
-                                            tracing::info!(
-                                                "Server {} processing MaskedInput from client {}",
-                                                party_id,
-                                                client_id
-                                            );
-
-                                            // Process through the MPC engine
-                                            if let Err(e) = engine.process_masked_input(input_msg).await {
-                                                tracing::error!(
-                                                    "Server {} failed to process MaskedInput: {}",
-                                                    party_id,
-                                                    e
-                                                );
-                                                return Err(Error::MPCError(format!("MaskedInput processing failed: {}", e)));
-                                            }
-
-                                            tracing::info!(
-                                                "Server {} stored input shares for client {}",
-                                                party_id,
-                                                client_id
-                                            );
-
-                                            // Check if we have the client's input shares now
-                                            if engine.has_client_input(client_id).await {
-                                                tracing::info!(
-                                                    "Server {} confirmed input shares for client {} are stored in engine",
-                                                    party_id,
-                                                    client_id
-                                                );
-                                            }
-                                        }
-                                        _ => {
-                                            tracing::warn!(
-                                                "Server {} received non-Input HB message from client {}",
-                                                party_id,
-                                                client_id
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    tracing::error!(
-                                        "Server {} failed to deserialize HB message from client {}",
-                                        party_id,
-                                        client_id
-                                    );
-                                }
-                            }
-                            _ => {
-                                tracing::warn!(
-                                    "Server {} received unexpected message type from client {} (expected MaskedInput)",
-                                    party_id,
-                                    client_id
-                                );
-                            }
-                        }
 
                         // Execute the program with MPC
                         tracing::info!(
