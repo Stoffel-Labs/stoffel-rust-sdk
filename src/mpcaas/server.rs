@@ -1429,8 +1429,8 @@ impl StoffelServer {
 
         let mut handles = Vec::new();
 
-        // Get all peer connections from the network
-        let connections = network.get_all_connections().await;
+        // Get all peer connections from the network (server-to-server)
+        let connections = network.get_all_server_connections();
 
         tracing::info!(
             "Server {} spawning message processor with {} connections (channel-based sequential processing)",
