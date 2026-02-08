@@ -10,8 +10,8 @@ repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 [dependencies]
 # Core Stoffel dependencies (pinned to specific commits)
 stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", rev = "1c0bdde58b1ca3e995b28f223fcefc484f1a87fb" }
-stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "ce0fffb" }
-stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "ce0fffb" }
+stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "aed1048" }
+stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "aed1048" }
 stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "82a60d1e2c3382013214d9165a906b781490bcde" }
 stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "82a60d1e2c3382013214d9165a906b781490bcde" }
 
