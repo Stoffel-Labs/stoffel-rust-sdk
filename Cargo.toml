@@ -8,12 +8,12 @@ license = "Apache-2.0"
 repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 
 [dependencies]
-# Core Stoffel dependencies (using git repos with specific branches)
-stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", branch = "feature/stoffelvm-runner-branch" }
-stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
-stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
-stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "types-preproc-tmp" }
-stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "types-preproc-tmp" }
+# Core Stoffel dependencies (pinned to specific commits)
+stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", rev = "1c0bdde58b1ca3e995b28f223fcefc484f1a87fb" }
+stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "5d142dfca591594af56e7ee05bd91d61e28a36d9" }
+stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "5d142dfca591594af56e7ee05bd91d61e28a36d9" }
+stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "82a60d1e2c3382013214d9165a906b781490bcde" }
+stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "82a60d1e2c3382013214d9165a906b781490bcde" }
 
 # Modern QUIC-based networking (pinned to match mpc-protocols)
 stoffelnet = { git = "https://github.com/Stoffel-Labs/stoffel-networking.git", rev = "bac0841120d7e99f6be867a00dd3c38a6fc5f126" }
