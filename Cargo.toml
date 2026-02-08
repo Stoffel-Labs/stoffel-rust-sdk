@@ -12,8 +12,8 @@ repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", branch = "main" }
 stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
 stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
-stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "types-preproc-tmp" }
-stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "types-preproc-tmp" }
+stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "dev" }
+stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "dev" }
 
 # Modern QUIC-based networking
 stoffelnet = { git = "https://github.com/Stoffel-Labs/stoffel-networking.git", branch = "main" }
