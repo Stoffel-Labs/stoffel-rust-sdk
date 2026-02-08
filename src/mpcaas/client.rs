@@ -338,7 +338,7 @@ impl StoffelClientBuilder {
             // Connect as client
             let conn = {
                 let mut net = network.lock().await;
-                net.connect_as_client(*addr, client_id).await
+                net.connect_as_client(*addr).await
                     .map_err(|e| Error::Network(format!("Failed to connect to server at {}: {}", addr, e)))?
             };
 

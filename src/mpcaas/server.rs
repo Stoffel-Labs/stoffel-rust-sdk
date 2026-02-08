@@ -666,7 +666,7 @@ impl StoffelServer {
                 let mut net = network.lock().await;
                 tokio::time::timeout(
                     std::time::Duration::from_secs(2),
-                    net.connect_as_server(peer.address, party_id)
+                    net.connect_as_server(peer.address)
                 ).await
             };
 
@@ -846,7 +846,7 @@ impl StoffelServer {
                     let mut net = mpc_network.lock().await;
                     tokio::time::timeout(
                         std::time::Duration::from_secs(3),
-                        net.connect_as_server(peer_mpc_addr, party_id)
+                        net.connect_as_server(peer_mpc_addr)
                     ).await
                 };
 
