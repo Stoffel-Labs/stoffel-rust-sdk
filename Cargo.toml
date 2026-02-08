@@ -9,7 +9,7 @@ repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 
 [dependencies]
 # Core Stoffel dependencies (using git repos with specific branches)
-stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", branch = "main" }
+stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", branch = "feature/stoffelvm-runner-branch" }
 stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
 stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
 stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "types-preproc-tmp" }
