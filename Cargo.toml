@@ -10,10 +10,12 @@ repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 [dependencies]
 # Core Stoffel dependencies (pinned to specific commits)
 stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", rev = "1c0bdde58b1ca3e995b28f223fcefc484f1a87fb" }
-stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "aed1048" }
-stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "aed1048" }
-stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "82a60d1e2c3382013214d9165a906b781490bcde" }
-stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "82a60d1e2c3382013214d9165a906b781490bcde" }
+# StoffelVM: feature/coordinator-client branch - has ClientStore.get_number_clients
+stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "4b202de" }
+stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "4b202de" }
+# mpc-protocols: feature/asymmetric-bad-fake-network branch - has race condition fixes
+stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "e29533c" }
+stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "e29533c" }
 
 # Modern QUIC-based networking (pinned to match mpc-protocols)
 stoffelnet = { git = "https://github.com/Stoffel-Labs/stoffel-networking.git", rev = "bac0841120d7e99f6be867a00dd3c38a6fc5f126" }
