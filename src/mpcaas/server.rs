@@ -70,8 +70,8 @@ use stoffel_vm::core_vm::VirtualMachine;
 // MPC protocol types for message processing
 use ark_bls12_381::Fr;
 use stoffelmpc_mpc::common::MPCProtocol;
-use stoffelmpc_mpc::common::rbc::rbc::Avid as RBCImpl;
-use stoffelmpc_mpc::honeybadger::HoneyBadgerMPCNode;
+use stoffelmpc_mpc::common::rbc::rbc::Avid;
+use stoffelmpc_mpc::honeybadger::{HoneyBadgerMPCNode, SessionId};
 use std::time::Duration;
 
 /// State of the MPC server
@@ -1421,7 +1421,7 @@ impl StoffelServer {
     /// Returns a vector of JoinHandles for the spawned tasks.
     async fn spawn_message_processors(
         party_id: usize,
-        node: HoneyBadgerMPCNode<Fr, RBCImpl>,
+        node: HoneyBadgerMPCNode<Fr, Avid<SessionId>>,
         network: Arc<QuicNetworkManager>,
         shutdown: Arc<AtomicBool>,
     ) -> Vec<tokio::task::JoinHandle<()>> {

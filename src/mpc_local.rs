@@ -33,9 +33,9 @@ use stoffel_vm::core_vm::VirtualMachine;
 use stoffelmpc_network::fake_network::{FakeNetwork, FakeNetworkConfig};
 use tokio::time::{timeout, Duration};
 use ark_bls12_381::Fr;
-use stoffelmpc_mpc::honeybadger::{HoneyBadgerMPCNode, HoneyBadgerMPCNodeOpts};
+use stoffelmpc_mpc::honeybadger::{HoneyBadgerMPCNode, HoneyBadgerMPCNodeOpts, SessionId};
 use stoffelmpc_mpc::common::{MPCProtocol, PreprocessingMPCProtocol};
-use stoffelmpc_mpc::common::rbc::rbc::Avid as RBCImpl;
+use stoffelmpc_mpc::common::rbc::rbc::Avid;
 use stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare;
 use rand::SeedableRng;
 
@@ -46,7 +46,7 @@ pub struct LocalMPCNetwork {
     instance_id: u64,
     network: Arc<FakeNetwork>,
     receivers: Vec<tokio::sync::mpsc::Receiver<Vec<u8>>>,
-    nodes: Vec<HoneyBadgerMPCNode<Fr, RBCImpl>>,
+    nodes: Vec<HoneyBadgerMPCNode<Fr, Avid<SessionId>>>,
 }
 
 impl LocalMPCNetwork {
@@ -87,18 +87,18 @@ impl LocalMPCNetwork {
                 threshold,
                 n_triples,
                 n_random,
-                instance_id,
+                instance_id as u32,
                 0,  // n_prandbit
                 0,  // n_prandint
                 0,  // l
                 0,  // k
             );
 
-            let node = <HoneyBadgerMPCNode<Fr, RBCImpl> as MPCProtocol<
+            let node = <HoneyBadgerMPCNode<Fr, Avid<SessionId>> as MPCProtocol<
                 Fr,
                 RobustShare<Fr>,
                 FakeNetwork,
-            >>::setup(party_id, mpc_opts)
+            >>::setup(party_id, mpc_opts, vec![])
                 .map_err(|e| Error::RuntimeError(format!("Failed to create MPC node for party {}: {:?}", party_id, e)))?;
 
             nodes.push(node);

@@ -91,8 +91,8 @@ use stoffelnet::transports::quic::{QuicNetworkManager, PeerConnection};
 
 // MPC protocol types for HoneyBadger client
 use ark_bls12_381::Fr;
-use stoffelmpc_mpc::honeybadger::HoneyBadgerMPCClient;
-use stoffelmpc_mpc::common::rbc::rbc::Avid as RBCImpl;
+use stoffelmpc_mpc::honeybadger::{HoneyBadgerMPCClient, SessionId};
+use stoffelmpc_mpc::common::rbc::rbc::Avid;
 
 /// State of the MPC client
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -549,11 +549,11 @@ impl StoffelClient {
 
         // Step 2: Create HoneyBadger MPC client for input/output protocol
         // Note: Currently using manual protocol handling, but keeping client for future output integration
-        let _mpc_client = HoneyBadgerMPCClient::<Fr, RBCImpl>::new(
+        let _mpc_client = HoneyBadgerMPCClient::<Fr, Avid<SessionId>>::new(
             self.client_id,
             self.n_parties,
             self.threshold,
-            self.instance_id,
+            self.instance_id as u32,
             field_inputs.clone(),
             inputs.len(),
         ).map_err(|e| Error::MPCError(format!("Failed to create MPC client: {:?}", e)))?;
