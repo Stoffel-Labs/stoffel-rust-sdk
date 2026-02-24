@@ -8,13 +8,14 @@ license = "Apache-2.0"
 repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 
 [dependencies]
-# Core Stoffel dependencies (using local paths for development)
-stoffellang = { path = "../../Stoffel-Lang" }
-stoffel-vm = { path = "../../StoffelVM/crates/stoffel-vm" }
-stoffel-vm-types = { path = "../../StoffelVM/crates/stoffel-vm-types" }
-stoffelmpc-mpc = { path = "../../mpc-protocols/mpc" }
-stoffelmpc-network = { path = "../../mpc-protocols/network" }
-stoffelnet = { path = "../../stoffel-networking" }
+# Core Stoffel dependencies (using git URLs for Docker/CI builds)
+# These are pinned to STO-337 compatible branches
+stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", branch = "main" }
+stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
+stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
+stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "feature/sto-337-stoffelnet-update" }
+stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "feature/sto-337-stoffelnet-update" }
+stoffelnet = { git = "https://github.com/Stoffel-Labs/stoffel-networking.git", branch = "feature/sto-337-cratesio-prep" }
 
 # Utility dependencies
 anyhow = "1.0"
