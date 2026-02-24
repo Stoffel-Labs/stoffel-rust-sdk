@@ -8,17 +8,13 @@ license = "Apache-2.0"
 repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 
 [dependencies]
-# Core Stoffel dependencies (pinned to specific commits)
-stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", rev = "2d6aeca" }
-# StoffelVM: feature/mpc-asymmetric-api branch - has ClientStore.get_number_clients and uses mpc-protocols e29533c
-stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "2939e91" }
-stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "2939e91" }
-# mpc-protocols: feature/asymmetric-bad-fake-network branch - has race condition fixes
-stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "e29533c" }
-stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "e29533c" }
-
-# Modern QUIC-based networking (pinned to match mpc-protocols)
-stoffelnet = { git = "https://github.com/Stoffel-Labs/stoffel-networking.git", rev = "bac0841120d7e99f6be867a00dd3c38a6fc5f126" }
+# Core Stoffel dependencies (using local paths for development)
+stoffellang = { path = "../../Stoffel-Lang" }
+stoffel-vm = { path = "../../StoffelVM/crates/stoffel-vm" }
+stoffel-vm-types = { path = "../../StoffelVM/crates/stoffel-vm-types" }
+stoffelmpc-mpc = { path = "../../mpc-protocols/mpc" }
+stoffelmpc-network = { path = "../../mpc-protocols/network" }
+stoffelnet = { path = "../../stoffel-networking" }
 
 # Utility dependencies
 anyhow = "1.0"

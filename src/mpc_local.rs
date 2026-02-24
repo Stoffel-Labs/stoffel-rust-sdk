@@ -28,6 +28,7 @@
 
 use crate::{Error, Result};
 use std::sync::Arc;
+use std::time::Duration as StdDuration;
 
 use stoffel_vm::core_vm::VirtualMachine;
 use stoffelmpc_network::fake_network::{FakeNetwork, FakeNetworkConfig};
@@ -76,7 +77,7 @@ impl LocalMPCNetwork {
 
         // Create fake network with in-memory channels
         let config = FakeNetworkConfig::new(1024);
-        let (network, receivers, _) = FakeNetwork::new(n_parties, None, config);
+        let (network, receivers, _) = FakeNetwork::new(n_parties, None, config, 0);
         let network = Arc::new(network);
 
         // Create MPC nodes for each party
@@ -92,6 +93,7 @@ impl LocalMPCNetwork {
                 0,  // n_prandint
                 0,  // l
                 0,  // k
+                StdDuration::from_secs(60),
             );
 
             let node = <HoneyBadgerMPCNode<Fr, Avid<SessionId>> as MPCProtocol<

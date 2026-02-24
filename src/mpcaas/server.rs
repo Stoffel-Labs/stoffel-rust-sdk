@@ -904,6 +904,7 @@ impl StoffelServer {
             n_triples,
             n_random_shares,
             mpc_network_arc,
+            (0..n_parties).collect(),
         ) {
             Ok(engine) => engine,
             Err(e) => {
