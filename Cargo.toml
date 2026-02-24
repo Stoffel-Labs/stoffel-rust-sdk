@@ -10,7 +10,7 @@ repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 [dependencies]
 # Core Stoffel dependencies (using git URLs for Docker/CI builds)
 # These are pinned to STO-337 compatible branches
-stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", branch = "main" }
+stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", branch = "fix/sto-337-mpc-compatibility" }
 stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "fix/sto-337-mpc-compatibility" }
 stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "fix/sto-337-mpc-compatibility" }
 stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "feature/sto-337-stoffelnet-update" }
