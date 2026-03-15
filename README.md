@@ -21,7 +21,7 @@ The Stoffel Rust SDK v0.1.0 provides a unified API for:
 use stoffel_rust_sdk::prelude::*;
 
 fn main() -> Result<()> {
-    // Compile and execute locally (no MPC)
+    // Compile and execute locally
     let result = Stoffel::compile("
         main main() -> int64:
             return 42
