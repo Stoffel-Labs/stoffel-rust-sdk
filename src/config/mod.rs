@@ -369,7 +369,7 @@ impl StoffelConfig {
     ///
     /// # Errors
     ///
-    /// Returns `Error::IoError` if the file cannot be read, or
+    /// Returns `Error::Io` if the file cannot be read, or
     /// `Error::Configuration` if the TOML is malformed.
     pub fn load(path: &str) -> Result<Self, Error> {
         let content = std::fs::read_to_string(path)?;

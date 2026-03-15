@@ -130,11 +130,3 @@ impl Program {
         loaded.list_functions()
     }
 }
-
-// MPC Participant builders have been moved to their respective modules:
-// - MPCServerBuilder  → src/server.rs
-// - MPCClientBuilder  → src/client.rs
-// - MPCNodeBuilder    → src/session.rs
-//
-// This keeps the Program abstraction focused on compiled bytecode,
-// while builders live with the MPC participant types they create.

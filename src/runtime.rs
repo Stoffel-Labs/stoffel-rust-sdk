@@ -106,8 +106,4 @@ impl StoffelRuntime {
     pub fn execute_local_function(&self, name: &str) -> crate::Result<vm::Value> {
         self.program.execute_local_function(name)
     }
-
-    // TODO: client(id) -> MPCClientBuilder  (will be implemented by network agent)
-    // TODO: server(id) -> MPCServerBuilder  (will be implemented by network agent)
-    // TODO: node(id)   -> MPCNodeBuilder    (will be implemented by network agent)
 }
