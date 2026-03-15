@@ -126,25 +126,25 @@ StoffelRuntime                  # Compiled program + MPC config
 
 ```
 src/
-├── lib.rs              # Stoffel entry point & builder (RFC-001)
+├── lib.rs              # Stoffel entry point & builder
 ├── runtime.rs          # StoffelRuntime
-├── error.rs            # Error types: Error, NetworkError, ConsensusError (RFC-009)
+├── error.rs            # Error types: Error, NetworkError, ConsensusError
 ├── types.rs            # PartyId, ClientId, ComputationId, Value
-├── config/             # Configuration system (RFC-008)
+├── config/             # Configuration system
 │   ├── mod.rs          # MpcConfig, NetworkConfig, PreprocessingConfig, Curve
 │   └── validation.rs   # n >= 4, n >= 3t+1
-├── backend/            # MPC protocol backends (RFC-004, RFC-005)
+├── backend/            # MPC protocol backends
 │   ├── mod.rs          # MpcBackend enum, MpcEngine trait, share types
 │   ├── honeybadger.rs  # HoneyBadgerEngine
 │   └── avss.rs         # AvssEngine + KeyStore
-├── client.rs           # StoffelClient API (RFC-002)
-├── server.rs           # StoffelServer API (RFC-003)
-├── consensus.rs        # ConsensusGate, VerifiedOrdering (RFC-006)
-├── coordinator/        # On-chain / off-chain coordination (RFC-007)
+├── client.rs           # StoffelClient API
+├── server.rs           # StoffelServer API
+├── consensus.rs        # ConsensusGate, VerifiedOrdering
+├── coordinator/        # On-chain / off-chain coordination
 │   ├── mod.rs          # Round state machine (7 phases)
 │   ├── offchain.rs     # OffChainCoordinator (local testing)
 │   └── onchain.rs      # OnChainCoordinator (Solidity contract)
-├── observability/      # Metrics & health (RFC-010)
+├── observability/      # Metrics & health
 │   ├── mod.rs          # Counter, Gauge, Histogram, ServerMetrics, HealthStatus
 │   └── otel.rs         # OtelConfig placeholder
 ├── compiler.rs         # Stoffel-Lang compiler wrapper
@@ -305,23 +305,6 @@ cargo fmt            # Format
 cargo clippy         # Lint
 cargo doc --open     # Documentation
 ```
-
-## RFC Specifications
-
-This SDK was designed from 10 RFCs in the [Stoffel Rust SDK RFC Book](https://hackmd.io/@stoffel-labs/4S4LBWzwS_aznua_GWSY4g):
-
-| RFC | Title |
-|-----|-------|
-| [RFC-001](https://hackmd.io/@stoffel-labs/g4wwhVD2Rfe5ijQB4FStVw) | Core API & Builder Pattern |
-| [RFC-002](https://hackmd.io/@stoffel-labs/NjFzeISZRK6P85IM5NSDhQ) | StoffelClient API |
-| [RFC-003](https://hackmd.io/@stoffel-labs/Z0S5rR8USc2sjta0BSU9lw) | StoffelServer API |
-| [RFC-004](https://hackmd.io/@stoffel-labs/iQ9OmZXcTSSqyhcRJ6LZEQ) | MPC Backend Trait & HoneyBadger |
-| [RFC-005](https://hackmd.io/@stoffel-labs/hYo5e0J3RN6NzNPrbi_Lsg) | AVSS Backend Integration |
-| [RFC-006](https://hackmd.io/@stoffel-labs/LsXI2ZCGTBC6GoGmQ1fFYg) | Consensus Protocol |
-| [RFC-007](https://hackmd.io/@stoffel-labs/kCYNMTDFQ1-R9OGHc8UmUg) | On-Chain Coordination |
-| [RFC-008](https://hackmd.io/@stoffel-labs/lVUx5QUsQSCiGea7m0na_A) | Configuration System |
-| [RFC-009](https://hackmd.io/@stoffel-labs/4iCPjSX_SYOPdxtkKLB3Jw) | Error Handling & Recovery |
-| [RFC-010](https://hackmd.io/@stoffel-labs/G1jNuDdLQuenpPomm-9bbQ) | Observability & Metrics |
 
 ## License
 
