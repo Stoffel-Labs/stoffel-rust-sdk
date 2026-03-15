@@ -82,7 +82,6 @@ pub use error::{Error, Result};
 /// | `.parties(n)` | 5 | Number of MPC parties |
 /// | `.threshold(t)` | 1 | Byzantine fault tolerance |
 /// | `.instance_id(id)` | random | Computation identifier |
-/// | `.with_inputs(inputs)` | none | Provide named inputs |
 /// | `.backend(backend)` | HoneyBadger | MPC backend protocol |
 /// | `.network_config_file(path)` | none | Load MPC config from TOML file |
 ///
@@ -122,7 +121,6 @@ pub struct Stoffel {
     threshold: Option<usize>,
     instance_id: u64,
     mpc_backend: Option<backend::MpcBackend>,
-    inputs: Vec<(String, i64)>,
 }
 
 impl Stoffel {
@@ -199,7 +197,6 @@ impl Stoffel {
             threshold: None,
             instance_id: 0,
             mpc_backend: None,
-            inputs: Vec::new(),
         }
     }
 
@@ -214,7 +211,6 @@ impl Stoffel {
             threshold: None,
             instance_id: 0,
             mpc_backend: None,
-            inputs: Vec::new(),
         }
     }
 
@@ -244,27 +240,6 @@ impl Stoffel {
     /// Default: 0.
     pub fn instance_id(mut self, id: u64) -> Self {
         self.instance_id = id;
-        self
-    }
-
-    /// Provide named inputs for the computation.
-    ///
-    /// These are passed to the VM when executing locally, or secret-shared
-    /// when running in an MPC network.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use stoffel_rust_sdk::Stoffel;
-    /// # fn main() -> stoffel_rust_sdk::Result<()> {
-    /// let result = Stoffel::compile("main main(a: int64, b: int64) -> int64:\n  return a + b")?
-    ///     .with_inputs(&[("a", 10), ("b", 20)])
-    ///     .execute_local()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn with_inputs(mut self, inputs: &[(&str, i64)]) -> Self {
-        self.inputs = inputs.iter().map(|(k, v)| (k.to_string(), *v)).collect();
         self
     }
 
