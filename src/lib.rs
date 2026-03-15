@@ -81,7 +81,7 @@ pub use error::{Error, Result};
 /// |--------|---------|-------------|
 /// | `.parties(n)` | 5 | Number of MPC parties |
 /// | `.threshold(t)` | 1 | Byzantine fault tolerance |
-/// | `.instance_id(id)` | random | Computation identifier |
+/// | `.instance_id(id)` | random u64 | Computation identifier |
 /// | `.backend(backend)` | HoneyBadger | MPC backend protocol |
 /// | `.config_file(path)` | none | Load MPC config from TOML file |
 ///
@@ -116,7 +116,7 @@ pub struct Stoffel {
     bytecode: Vec<u8>,
     n_parties: Option<usize>,
     threshold: Option<usize>,
-    instance_id: u64,
+    instance_id: Option<u64>,
     mpc_backend: Option<backend::MpcBackend>,
 }
 
@@ -189,7 +189,7 @@ impl Stoffel {
             bytecode,
             n_parties: None,
             threshold: None,
-            instance_id: 0,
+            instance_id: None,
             mpc_backend: None,
         }
     }
@@ -217,9 +217,9 @@ impl Stoffel {
     /// Set the computation instance ID.
     ///
     /// Each independent computation should use a unique instance ID.
-    /// Default: 0.
+    /// Default: random `u64`.
     pub fn instance_id(mut self, id: u64) -> Self {
-        self.instance_id = id;
+        self.instance_id = Some(id);
         self
     }
 
@@ -246,8 +246,8 @@ impl Stoffel {
         if self.threshold.is_none() {
             self.threshold = Some(stoffel_config.mpc.threshold);
         }
-        if self.instance_id == 0 {
-            self.instance_id = stoffel_config.mpc.instance_id;
+        if self.instance_id.is_none() {
+            self.instance_id = Some(stoffel_config.mpc.instance_id);
         }
 
         Ok(self)
@@ -280,10 +280,15 @@ impl Stoffel {
         let mpc_config = if let Some(n) = self.n_parties {
             let t = self.threshold.unwrap_or(1);
 
+            let instance_id = self.instance_id.unwrap_or_else(|| {
+                use rand::Rng;
+                rand::thread_rng().gen()
+            });
+
             let mpc = config::MpcConfig {
                 parties: n,
                 threshold: t,
-                instance_id: self.instance_id,
+                instance_id,
                 backend: match self.mpc_backend {
                     Some(backend::MpcBackend::HoneyBadger) | None => {
                         config::MpcBackendConfig::HoneyBadger
