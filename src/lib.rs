@@ -83,7 +83,7 @@ pub use error::{Error, Result};
 /// | `.threshold(t)` | 1 | Byzantine fault tolerance |
 /// | `.instance_id(id)` | random | Computation identifier |
 /// | `.backend(backend)` | HoneyBadger | MPC backend protocol |
-/// | `.network_config_file(path)` | none | Load MPC config from TOML file |
+/// | `.config_file(path)` | none | Load MPC config from TOML file |
 ///
 /// # Build / Execute
 ///
@@ -235,7 +235,7 @@ impl Stoffel {
     ///
     /// MPC parameters (parties, threshold, instance_id, backend) are extracted
     /// from the config if not already set explicitly.
-    pub fn network_config_file(mut self, path: impl AsRef<std::path::Path>) -> Result<Self> {
+    pub fn config_file(mut self, path: impl AsRef<std::path::Path>) -> Result<Self> {
         let stoffel_config = config::StoffelConfig::load(
             path.as_ref().to_str().unwrap_or(""),
         )?;
