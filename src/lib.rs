@@ -113,10 +113,7 @@ pub use error::{Error, Result};
 /// # }
 /// ```
 pub struct Stoffel {
-    source: Option<String>,
-    file_path: Option<String>,
-    bytecode: Option<Vec<u8>>,
-    optimize: bool,
+    bytecode: Vec<u8>,
     n_parties: Option<usize>,
     threshold: Option<usize>,
     instance_id: u64,
@@ -186,27 +183,10 @@ impl Stoffel {
         Self::from_bytecode(bytecode.to_vec())
     }
 
-    /// Create a new empty builder (advanced use).
-    pub fn new() -> Self {
-        Self {
-            source: None,
-            file_path: None,
-            bytecode: None,
-            optimize: false,
-            n_parties: None,
-            threshold: None,
-            instance_id: 0,
-            mpc_backend: None,
-        }
-    }
-
     /// Internal helper: create a builder that already holds bytecode.
     fn from_bytecode(bytecode: Vec<u8>) -> Self {
         Self {
-            source: None,
-            file_path: None,
-            bytecode: Some(bytecode),
-            optimize: false,
+            bytecode,
             n_parties: None,
             threshold: None,
             instance_id: 0,
@@ -240,24 +220,6 @@ impl Stoffel {
     /// Default: 0.
     pub fn instance_id(mut self, id: u64) -> Self {
         self.instance_id = id;
-        self
-    }
-
-    /// Enable compiler optimization.
-    pub fn optimize(mut self, enable: bool) -> Self {
-        self.optimize = enable;
-        self
-    }
-
-    /// Set the source code to compile (alternative to factory methods).
-    pub fn source(mut self, source: impl Into<String>) -> Self {
-        self.source = Some(source.into());
-        self
-    }
-
-    /// Set the file path to compile (alternative to factory methods).
-    pub fn file(mut self, path: impl Into<String>) -> Self {
-        self.file_path = Some(path.into());
         self
     }
 
@@ -314,9 +276,6 @@ impl Stoffel {
     /// # }
     /// ```
     pub fn build(self) -> Result<runtime::StoffelRuntime> {
-        // Resolve bytecode
-        let bytecode = self.resolve_bytecode()?;
-
         // Build MpcConfig if parties were configured
         let mpc_config = if let Some(n) = self.n_parties {
             let t = self.threshold.unwrap_or(1);
@@ -343,7 +302,7 @@ impl Stoffel {
         };
 
         Ok(runtime::StoffelRuntime {
-            program: program::Program::new(bytecode),
+            program: program::Program::new(self.bytecode),
             mpc_config,
         })
     }
@@ -364,45 +323,14 @@ impl Stoffel {
     /// # }
     /// ```
     pub fn execute_local(self) -> Result<vm::Value> {
-        let bytecode = self.resolve_bytecode()?;
         let v = vm::VM::new();
-        v.run_bytecode(&bytecode, "main")
+        v.run_bytecode(&self.bytecode, "main")
     }
 
     /// Compile and execute a specific function locally on the VM.
     pub fn execute_local_function(self, name: &str) -> Result<vm::Value> {
-        let bytecode = self.resolve_bytecode()?;
         let v = vm::VM::new();
-        v.run_bytecode(&bytecode, name)
+        v.run_bytecode(&self.bytecode, name)
     }
 
-    // ── Internal helpers ─────────────────────────────────────────────
-
-    /// Resolve bytecode from whichever source was provided.
-    fn resolve_bytecode(&self) -> Result<Vec<u8>> {
-        if let Some(ref bc) = self.bytecode {
-            return Ok(bc.clone());
-        }
-
-        let mut comp = compiler::Compiler::new();
-        if self.optimize {
-            comp = comp.optimize(true);
-        }
-
-        if let Some(ref source) = self.source {
-            comp.compile_source(source)
-        } else if let Some(ref path) = self.file_path {
-            comp.compile_file(path)
-        } else {
-            Err(Error::InvalidInput(
-                "No source, file, or bytecode provided".to_string(),
-            ))
-        }
-    }
-}
-
-impl Default for Stoffel {
-    fn default() -> Self {
-        Self::new()
-    }
 }
