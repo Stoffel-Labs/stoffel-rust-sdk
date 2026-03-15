@@ -53,7 +53,7 @@ pub(crate) fn load_bytecode_into_vm(vm: &mut VirtualMachine, bytecode: &[u8]) ->
     // Deserialize bytecode into CompiledBinary
     let mut cursor = Cursor::new(bytecode);
     let compiled_binary = CompiledBinary::deserialize(&mut cursor)
-        .map_err(|e| Error::RuntimeError(format!("Failed to deserialize bytecode: {:?}", e)))?;
+        .map_err(|e| Error::Runtime(format!("Failed to deserialize bytecode: {:?}", e)))?;
 
     // Convert to VM functions and register them
     let vm_functions = compiled_binary.to_vm_functions();
@@ -90,7 +90,7 @@ impl VM {
     /// Load bytecode from a file
     pub fn load_bytecode(&self, path: &str) -> Result<LoadedProgram> {
         let bytecode = std::fs::read(path)
-            .map_err(|e| Error::IoError(e))?;
+            .map_err(|e| Error::Io(e))?;
         Ok(LoadedProgram {
             bytecode,
             debug: self.debug,
@@ -108,7 +108,7 @@ impl VM {
         // Execute the entry function
         vm.execute(entry_function)
             .map(|v| convert_vm_value_to_sdk_value(v))
-            .map_err(|e| Error::RuntimeError(format!("Execution failed: {}", e)))
+            .map_err(|e| Error::Runtime(format!("Execution failed: {}", e)))
     }
 
     /// Register a custom Rust function for FFI
@@ -118,7 +118,7 @@ impl VM {
     {
         // TODO: Wrap the SDK function and register with VM's FFI
         // This requires converting between SDK Values and VM Values
-        Err(Error::RuntimeError(
+        Err(Error::Runtime(
             "FFI registration not yet fully implemented".to_string(),
         ))
     }
@@ -160,7 +160,7 @@ impl LoadedProgram {
 
         let mut cursor = Cursor::new(&self.bytecode);
         let compiled_binary = CompiledBinary::deserialize(&mut cursor)
-            .map_err(|e| Error::RuntimeError(format!("Failed to deserialize bytecode: {:?}", e)))?;
+            .map_err(|e| Error::Runtime(format!("Failed to deserialize bytecode: {:?}", e)))?;
 
         // Convert to VM functions
         let vm_functions = compiled_binary.to_vm_functions();
@@ -182,7 +182,7 @@ impl LoadedProgram {
         // Execute with args
         vm.execute_with_args(function_name, &vm_args)
             .map(|v| convert_vm_value_to_sdk_value(v))
-            .map_err(|e| Error::RuntimeError(format!("Execution failed: {}", e)))
+            .map_err(|e| Error::Runtime(format!("Execution failed: {}", e)))
     }
 
     /// List all functions in the loaded program
@@ -193,7 +193,7 @@ impl LoadedProgram {
 
         let mut cursor = Cursor::new(&self.bytecode);
         let compiled_binary = CompiledBinary::deserialize(&mut cursor)
-            .map_err(|e| Error::RuntimeError(format!("Failed to deserialize bytecode: {:?}", e)))?;
+            .map_err(|e| Error::Runtime(format!("Failed to deserialize bytecode: {:?}", e)))?;
 
         // Extract function info
         let functions = compiled_binary.functions

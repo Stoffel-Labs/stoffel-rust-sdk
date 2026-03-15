@@ -55,13 +55,6 @@ pub mod observability;
 pub mod server;
 pub mod prelude;
 
-// Legacy modules (preserved for backward compatibility, will be rewritten)
-pub mod secret_sharing;
-pub mod network_config;
-pub mod network_helpers;
-pub mod advanced;
-pub mod mpc_local;
-
 pub use error::{Error, Result};
 
 // ── Stoffel entry point / builder ────────────────────────────────────
@@ -90,8 +83,8 @@ pub use error::{Error, Result};
 /// | `.threshold(t)` | 1 | Byzantine fault tolerance |
 /// | `.instance_id(id)` | random | Computation identifier |
 /// | `.with_inputs(inputs)` | none | Provide named inputs |
-/// | `.network_config(cfg)` | none | Network configuration |
-/// | `.network_config_file(path)` | none | Load network config from file |
+/// | `.backend(backend)` | HoneyBadger | MPC backend protocol |
+/// | `.network_config_file(path)` | none | Load MPC config from TOML file |
 ///
 /// # Build / Execute
 ///
@@ -128,7 +121,7 @@ pub struct Stoffel {
     n_parties: Option<usize>,
     threshold: Option<usize>,
     instance_id: u64,
-    network_config: Option<network_config::NetworkConfig>,
+    mpc_backend: Option<backend::MpcBackend>,
     inputs: Vec<(String, i64)>,
 }
 
@@ -205,7 +198,7 @@ impl Stoffel {
             n_parties: None,
             threshold: None,
             instance_id: 0,
-            network_config: None,
+            mpc_backend: None,
             inputs: Vec::new(),
         }
     }
@@ -220,7 +213,7 @@ impl Stoffel {
             n_parties: None,
             threshold: None,
             instance_id: 0,
-            network_config: None,
+            mpc_backend: None,
             inputs: Vec::new(),
         }
     }
@@ -293,40 +286,33 @@ impl Stoffel {
         self
     }
 
-    /// Load network configuration from a TOML file.
+    /// Set the MPC backend protocol.
     ///
-    /// MPC parameters (parties, threshold) are extracted from the config
-    /// if not already set explicitly.
+    /// Default: [`MpcBackend::HoneyBadger`](backend::MpcBackend::HoneyBadger).
+    pub fn backend(mut self, backend: backend::MpcBackend) -> Self {
+        self.mpc_backend = Some(backend);
+        self
+    }
+
+    /// Load MPC configuration from a TOML file.
+    ///
+    /// MPC parameters (parties, threshold, instance_id, backend) are extracted
+    /// from the config if not already set explicitly.
     pub fn network_config_file(mut self, path: impl AsRef<std::path::Path>) -> Result<Self> {
-        let config = network_config::NetworkConfig::from_file(
+        let stoffel_config = config::StoffelConfig::load(
             path.as_ref().to_str().unwrap_or(""),
         )?;
 
         if self.n_parties.is_none() {
-            self.n_parties = Some(config.mpc.n_parties);
+            self.n_parties = Some(stoffel_config.mpc.parties);
         }
         if self.threshold.is_none() {
-            self.threshold = Some(config.mpc.threshold);
+            self.threshold = Some(stoffel_config.mpc.threshold);
         }
-        if let Some(id) = config.mpc.instance_id {
-            self.instance_id = id;
-        }
-
-        self.network_config = Some(config);
-        Ok(self)
-    }
-
-    /// Set network configuration programmatically.
-    pub fn network_config(mut self, config: network_config::NetworkConfig) -> Result<Self> {
-        config.validate()?;
-
-        self.n_parties = Some(config.mpc.n_parties);
-        self.threshold = Some(config.mpc.threshold);
-        if let Some(id) = config.mpc.instance_id {
-            self.instance_id = id;
+        if self.instance_id == 0 {
+            self.instance_id = stoffel_config.mpc.instance_id;
         }
 
-        self.network_config = Some(config);
         Ok(self)
     }
 
@@ -356,41 +342,34 @@ impl Stoffel {
         // Resolve bytecode
         let bytecode = self.resolve_bytecode()?;
 
-        // Validate network config if present
-        if let Some(ref config) = self.network_config {
-            config.validate()?;
-        }
-
-        // Apply defaults and validate MPC parameters
-        let (n_parties, threshold) = if let Some(n) = self.n_parties {
+        // Build MpcConfig if parties were configured
+        let mpc_config = if let Some(n) = self.n_parties {
             let t = self.threshold.unwrap_or(1);
 
-            if n < 4 {
-                return Err(Error::InvalidInput(format!(
-                    "parties must be >= 4, got {}",
-                    n
-                )));
-            }
-            if n < 3 * t + 1 {
-                return Err(Error::InvalidInput(format!(
-                    "Invalid parameters: n={} must be >= 3t+1={} for t={}",
-                    n,
-                    3 * t + 1,
-                    t
-                )));
-            }
-
-            (Some(n), Some(t))
+            let mpc = config::MpcConfig {
+                parties: n,
+                threshold: t,
+                instance_id: self.instance_id,
+                backend: match self.mpc_backend {
+                    Some(backend::MpcBackend::HoneyBadger) | None => {
+                        config::MpcBackendConfig::HoneyBadger
+                    }
+                    Some(backend::MpcBackend::Avss { curve }) => {
+                        config::MpcBackendConfig::Avss {
+                            curve: config::Curve::from_backend(curve),
+                        }
+                    }
+                },
+            };
+            mpc.validate()?;
+            Some(mpc)
         } else {
-            (None, None)
+            None
         };
 
         Ok(runtime::StoffelRuntime {
             program: program::Program::new(bytecode),
-            n_parties,
-            threshold,
-            instance_id: self.instance_id,
-            network_config: self.network_config,
+            mpc_config,
         })
     }
 

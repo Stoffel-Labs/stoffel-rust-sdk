@@ -24,7 +24,6 @@
 //! └── Io(std::io::Error)         ─── file/network IO errors
 //! ```
 
-use std::fmt;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -83,37 +82,9 @@ pub enum Error {
     Io(#[from] std::io::Error),
 }
 
-// Backward-compatible aliases so existing `Error::IoError(e)` and
-// `Error::RuntimeError(s)` call-sites keep compiling.  These are
-// constructor functions that mirror the old variant names.
 impl Error {
-    /// Alias for [`Error::Io`] — keeps old `Error::IoError(e)` call-sites working.
-    #[inline]
-    pub fn IoError(source: std::io::Error) -> Self {
-        Self::Io(source)
-    }
-
-    /// Alias for [`Error::Runtime`] — keeps old `Error::RuntimeError(s)` call-sites working.
-    #[inline]
-    pub fn RuntimeError(msg: String) -> Self {
-        Self::Runtime(msg)
-    }
-
-    /// Alias for [`Error::Compilation`] — keeps old `Error::CompilationError(s)` call-sites working.
-    #[inline]
-    pub fn CompilationError(msg: String) -> Self {
-        Self::Compilation(msg)
-    }
-
-    /// Alias for [`Error::Network`] variant wrapping a plain string (legacy).
-    #[inline]
-    pub fn MPCError(msg: String) -> Self {
-        Self::Computation(msg)
-    }
-
     /// Return the full error chain as a single string, one cause per line.
     pub fn chain(&self) -> String {
-        use std::error::Error as _;
         let mut parts = vec![self.to_string()];
         let mut current: &dyn std::error::Error = self;
         while let Some(source) = current.source() {
@@ -344,17 +315,6 @@ impl<T> ResultExt<T> for Option<T> {
 // for ergonomic conversions from common external error types)
 // ---------------------------------------------------------------------------
 
-impl From<String> for Error {
-    fn from(msg: String) -> Self {
-        Error::Runtime(msg)
-    }
-}
-
-impl From<&str> for Error {
-    fn from(msg: &str) -> Self {
-        Error::Runtime(msg.to_string())
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -441,16 +401,4 @@ mod tests {
         assert!(err.to_string().contains("x"));
     }
 
-    #[test]
-    fn backward_compat_aliases() {
-        // Ensure the old constructor-style calls still work
-        let e1 = Error::IoError(std::io::Error::new(std::io::ErrorKind::Other, "oops"));
-        assert!(matches!(e1, Error::Io(_)));
-
-        let e2 = Error::RuntimeError("boom".into());
-        assert!(matches!(e2, Error::Runtime(_)));
-
-        let e3 = Error::CompilationError("parse fail".into());
-        assert!(matches!(e3, Error::Compilation(_)));
-    }
 }

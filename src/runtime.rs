@@ -2,8 +2,7 @@
 //!
 //! The runtime is produced by [`Stoffel::build()`](crate::Stoffel::build) and holds:
 //! - A compiled [`Program`](crate::program::Program)
-//! - MPC configuration (parties, threshold, instance ID)
-//! - Optional network configuration
+//! - Optional [`MpcConfig`](crate::config::MpcConfig) for MPC operations
 //!
 //! # Examples
 //!
@@ -20,12 +19,13 @@
 //! let result = runtime.program().execute_local()?;
 //!
 //! // Query MPC configuration
-//! let (n, t, id) = runtime.mpc_config().unwrap();
+//! let mpc = runtime.mpc_config().unwrap();
+//! assert_eq!(mpc.parties, 5);
 //! # Ok(())
 //! # }
 //! ```
 
-use crate::{program, network_config, vm};
+use crate::{config, program, vm};
 
 /// A compiled Stoffel program paired with MPC infrastructure configuration.
 ///
@@ -33,8 +33,7 @@ use crate::{program, network_config, vm};
 /// a configured [`Stoffel`](crate::Stoffel) builder. It packages together:
 ///
 /// - The compiled bytecode as a [`Program`](crate::program::Program)
-/// - MPC parameters (number of parties, threshold, instance ID)
-/// - Optional [`NetworkConfig`](crate::network_config::NetworkConfig) for production deployments
+/// - Optional [`MpcConfig`](crate::config::MpcConfig) for MPC operations
 ///
 /// From a runtime you can:
 /// - Execute programs locally for testing via [`program()`](Self::program)
@@ -57,16 +56,14 @@ use crate::{program, network_config, vm};
 /// let result = runtime.program().execute_local()?;
 ///
 /// // Inspect config
-/// assert_eq!(runtime.mpc_config(), Some((5, 1, 42)));
+/// let mpc = runtime.mpc_config().unwrap();
+/// assert_eq!(mpc.parties, 5);
 /// # Ok(())
 /// # }
 /// ```
 pub struct StoffelRuntime {
     pub(crate) program: program::Program,
-    pub(crate) n_parties: Option<usize>,
-    pub(crate) threshold: Option<usize>,
-    pub(crate) instance_id: u64,
-    pub(crate) network_config: Option<network_config::NetworkConfig>,
+    pub(crate) mpc_config: Option<config::MpcConfig>,
 }
 
 impl StoffelRuntime {
@@ -89,20 +86,11 @@ impl StoffelRuntime {
         &self.program
     }
 
-    /// Get the MPC configuration as a tuple of (n_parties, threshold, instance_id).
+    /// Get the MPC configuration, if one was set.
     ///
     /// Returns `None` if no MPC configuration was set (i.e., no `.parties()` call).
-    pub fn mpc_config(&self) -> Option<(usize, usize, u64)> {
-        if let (Some(n), Some(t)) = (self.n_parties, self.threshold) {
-            Some((n, t, self.instance_id))
-        } else {
-            None
-        }
-    }
-
-    /// Get the network configuration, if one was provided.
-    pub fn network_config(&self) -> Option<&network_config::NetworkConfig> {
-        self.network_config.as_ref()
+    pub fn mpc_config(&self) -> Option<&config::MpcConfig> {
+        self.mpc_config.as_ref()
     }
 
     /// Execute the program locally on the VM (convenience method).

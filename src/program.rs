@@ -54,7 +54,7 @@
 //! # }
 //! ```
 
-use crate::{vm, network_config::NetworkConfig, Error, Result};
+use crate::{vm, Error, Result};
 
 /// A compiled Stoffel program
 ///
@@ -88,7 +88,7 @@ impl Program {
 
     /// Save the bytecode to a file
     pub fn save(&self, path: &str) -> Result<()> {
-        std::fs::write(path, &self.bytecode).map_err(|e| Error::IoError(e))
+        std::fs::write(path, &self.bytecode).map_err(|e| Error::Io(e))
     }
 
     /// Execute the program locally on the VM for testing

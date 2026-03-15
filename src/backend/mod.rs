@@ -29,47 +29,14 @@ use std::future::Future;
 use std::pin::Pin;
 
 // ---------------------------------------------------------------------------
-// Local type aliases
+// Re-exports from canonical locations
 // ---------------------------------------------------------------------------
 
-// These types will eventually come from crate::config and crate::types once
-// those modules land on this branch. For now we define lightweight equivalents
-// here so that the trait signatures are correct.
-
 /// Party identifier for MPC compute nodes.
-///
-/// Wraps a `usize` index identifying a single party in the MPC network.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct PartyId(pub usize);
-
-impl From<usize> for PartyId {
-    fn from(id: usize) -> Self {
-        PartyId(id)
-    }
-}
-
-impl From<PartyId> for usize {
-    fn from(id: PartyId) -> Self {
-        id.0
-    }
-}
+pub use crate::types::PartyId;
 
 /// Elliptic curve selection for MPC backends that require one.
-///
-/// Mirrors the `Curve` enum that will live in `crate::config` once the
-/// config module is merged.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Curve {
-    /// BLS12-381 curve (default). 381-bit field, 128-bit security.
-    #[default]
-    Bls12_381,
-    /// BN254 curve. 254-bit field, ~100-bit security.
-    Bn254,
-    /// Curve25519. 255-bit field, 128-bit security.
-    Curve25519,
-    /// Ed25519 (Edwards form of Curve25519). 255-bit field, 128-bit security.
-    Ed25519,
-}
+pub use crate::config::Curve;
 
 // ---------------------------------------------------------------------------
 // MpcBackend enum

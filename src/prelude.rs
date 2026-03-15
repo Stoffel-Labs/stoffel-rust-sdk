@@ -31,5 +31,8 @@ pub use crate::vm::{VM, Value};
 // Shared types
 pub use crate::types::{PartyId, ClientId, ComputationId};
 
-// Config types will be re-exported once Agent B's work is merged:
-// pub use crate::config::{MpcConfig, Curve, ...};
+// Config types
+pub use crate::config::{MpcConfig, MpcBackendConfig, Curve, StoffelConfig};
+
+// Backend types
+pub use crate::backend::MpcBackend;

@@ -101,7 +101,7 @@ impl Compiler {
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join("\n");
-                Error::CompilationError(error_msg)
+                Error::Compilation(error_msg)
             })?;
 
         // Convert compiled program to binary format
@@ -110,7 +110,7 @@ impl Compiler {
         // Serialize to bytes
         let mut buffer = Vec::new();
         binary.serialize(&mut buffer)
-            .map_err(|e| Error::CompilationError(format!("Failed to serialize binary: {:?}", e)))?;
+            .map_err(|e| Error::Compilation(format!("Failed to serialize binary: {:?}", e)))?;
 
         Ok(buffer)
     }
@@ -118,7 +118,7 @@ impl Compiler {
     /// Compile source code from a file
     pub fn compile_file(&self, path: &str) -> Result<Vec<u8>> {
         let source = std::fs::read_to_string(path)
-            .map_err(|e| Error::IoError(e))?;
+            .map_err(|e| Error::Io(e))?;
         self.compile_source(&source)
     }
 
@@ -142,7 +142,7 @@ impl Compiler {
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join("\n");
-                Error::CompilationError(error_msg)
+                Error::Compilation(error_msg)
             })?;
 
         let binary = stoffellang::convert_to_binary(&compiled);
@@ -150,7 +150,7 @@ impl Compiler {
         // Serialize to bytes
         let mut bytecode = Vec::new();
         binary.serialize(&mut bytecode)
-            .map_err(|e| Error::CompilationError(format!("Failed to serialize binary: {:?}", e)))?;
+            .map_err(|e| Error::Compilation(format!("Failed to serialize binary: {:?}", e)))?;
 
         // Note: The IR is printed to stdout by stoffellang, not captured
         // In the future, we could modify stoffellang to return the IR
