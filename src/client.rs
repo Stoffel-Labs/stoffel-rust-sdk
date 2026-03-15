@@ -290,6 +290,7 @@ pub enum ComputationStatus {
 ///
 /// Returned by [`StoffelClient::submit`]. Use [`await_result`](Self::await_result)
 /// to block until the computation finishes, or [`status`](Self::status) to poll.
+#[derive(Debug)]
 pub struct ComputationHandle {
     computation_id: ComputationId,
     status: ComputationStatus,

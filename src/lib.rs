@@ -52,6 +52,7 @@ pub mod client;
 pub mod consensus;
 pub mod coordinator;
 pub mod observability;
+pub mod server;
 pub mod prelude;
 
 // Legacy modules (preserved for backward compatibility, will be rewritten)

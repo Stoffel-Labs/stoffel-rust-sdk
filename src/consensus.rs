@@ -1,11 +1,3 @@
-<<<<<<< HEAD
-//! Consensus protocol for deterministic ordering (RFC-006)
-//!
-//! This module provides ConsensusGate, VerifiedOrdering, and the
-//! four-phase consensus flow for establishing party/client ordering.
-
-// TODO: Agent E will implement this module per RFC-006
-=======
 //! Consensus protocol for deterministic ordering (RFC-006).
 //!
 //! Before an MPC computation can begin, all server parties must agree on:
@@ -363,4 +355,3 @@ mod tests {
         assert!(!ordering.verify_digest(&ClientListDigest::from_bytes([0xff; 32])));
     }
 }
->>>>>>> worktree-agent-a5c6fa03

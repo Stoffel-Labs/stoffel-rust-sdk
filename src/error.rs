@@ -186,7 +186,7 @@ pub enum NetworkError {
 // ---------------------------------------------------------------------------
 
 /// Errors originating from the MPC consensus layer (HoneyBadger protocol).
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum ConsensusError {
     /// A node reported a different participant list than expected.
     #[error("Node list mismatch from {node_address}")]

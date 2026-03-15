@@ -249,7 +249,7 @@ pub struct NetworkConfig {
 
     /// Map from party ID to socket address string for all known peers.
     #[serde(default)]
-    pub peers: HashMap<usize, String>,
+    pub peers: HashMap<String, String>,
 }
 
 impl NetworkConfig {
@@ -628,10 +628,14 @@ mod tests {
 
     #[test]
     fn test_curve_serde_roundtrip() {
+        // TOML can't serialize a bare enum; wrap in a struct
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        struct W { curve: Curve }
         for curve in [Curve::Bls12_381, Curve::Bn254, Curve::Curve25519, Curve::Ed25519] {
-            let s = toml::to_string(&curve).unwrap();
-            let parsed: Curve = toml::from_str(&s).unwrap();
-            assert_eq!(parsed, curve);
+            let w = W { curve };
+            let s = toml::to_string(&w).unwrap();
+            let parsed: W = toml::from_str(&s).unwrap();
+            assert_eq!(parsed.curve, curve);
         }
     }
 
@@ -685,7 +689,7 @@ generate_on_startup = false
         assert_eq!(config.network.party_id, 0);
         assert_eq!(config.network.expected_parties, 7);
         assert_eq!(config.network.consensus_timeout_ms, 60_000);
-        assert_eq!(config.network.peers.get(&1).unwrap(), "127.0.0.1:9001");
+        assert_eq!(config.network.peers.get("1").unwrap(), "127.0.0.1:9001");
         assert_eq!(config.preprocessing.triples, 2000);
         assert_eq!(config.preprocessing.random_shares, 1000);
         assert_eq!(config.preprocessing.min_triples, 200);

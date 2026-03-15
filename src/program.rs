@@ -48,9 +48,8 @@
 //!     .threshold(1)
 //!     .build()?;
 //!
-//! // StoffelRuntime provides the MPC participant builders
-//! let node = runtime.node(0).build()?;
-//! let client = runtime.client(100).with_inputs(vec![42]).build()?;
+//! // Access the compiled program for local testing
+//! let result = runtime.program().execute_local()?;
 //! # Ok(())
 //! # }
 //! ```
