@@ -8,15 +8,13 @@ license = "Apache-2.0"
 repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 
 [dependencies]
-# Core Stoffel dependencies (using git remote repositories)
-stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git" }
-stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
-stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "runner" }
-stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git" }
-stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git" }
-
-# Modern QUIC-based networking
-stoffelnet = { git = "https://github.com/Stoffel-Labs/stoffel-networking.git" }
+# Core Stoffel dependencies (pinned to STO-337 compatible branches)
+stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", branch = "fix/sto-337-mpc-compatibility" }
+stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "fix/sto-337-mpc-compatibility" }
+stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "fix/sto-337-mpc-compatibility" }
+stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "feature/sto-337-stoffelnet-update" }
+stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "feature/sto-337-stoffelnet-update" }
+stoffelnet = { git = "https://github.com/Stoffel-Labs/stoffel-networking.git", branch = "feature/sto-337-cratesio-prep" }
 
 # Utility dependencies
 anyhow = "1.0"
@@ -37,7 +35,7 @@ tokio = { version = "1.0", features = ["full"] }
 futures = { version = "0.3" }
 
 # Cryptography for QUIC
-rustls = { version = "0.23" }
+rustls = { version = "0.23", features = ["ring"] }
 
 # Logging
 tracing = { version = "0.1" }
@@ -48,4 +46,5 @@ tokio = { version = "1.0", features = ["full"] }
 
 [features]
 default = []
+
 
