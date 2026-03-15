@@ -68,16 +68,6 @@ pub enum Curve {
 }
 
 impl Curve {
-    /// Convert from the backend module's `Curve` type.
-    pub fn from_backend(c: crate::backend::Curve) -> Self {
-        match c {
-            crate::backend::Curve::Bls12_381 => Curve::Bls12_381,
-            crate::backend::Curve::Bn254 => Curve::Bn254,
-            crate::backend::Curve::Curve25519 => Curve::Curve25519,
-            crate::backend::Curve::Ed25519 => Curve::Ed25519,
-        }
-    }
-
     /// Returns the number of bits in the base field of this curve.
     pub fn field_bits(&self) -> usize {
         match self {

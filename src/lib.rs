@@ -289,9 +289,7 @@ impl Stoffel {
                         config::MpcBackendConfig::HoneyBadger
                     }
                     Some(backend::MpcBackend::Avss { curve }) => {
-                        config::MpcBackendConfig::Avss {
-                            curve: config::Curve::from_backend(curve),
-                        }
+                        config::MpcBackendConfig::Avss { curve }
                     }
                 },
             };
