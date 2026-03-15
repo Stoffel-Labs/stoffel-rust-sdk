@@ -220,6 +220,7 @@ pub mod vm;
 pub mod program;
 pub mod network_config;
 pub mod secret_sharing;
+pub mod backend;
 
 /// Advanced APIs for power users (low-level access)
 ///
