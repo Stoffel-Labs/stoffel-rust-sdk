@@ -212,6 +212,7 @@
 //! ```
 
 pub mod compiler;
+pub mod config;
 pub mod error;
 pub mod client;
 pub mod server;
