@@ -48,6 +48,7 @@ pub mod vm;
 pub mod program;
 pub mod runtime;
 pub mod backend;
+pub mod client;
 pub mod consensus;
 pub mod coordinator;
 pub mod observability;
