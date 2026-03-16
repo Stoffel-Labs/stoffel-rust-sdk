@@ -82,6 +82,7 @@ pub use error::{Error, Result};
 /// | `.parties(n)` | 5 | Number of MPC parties |
 /// | `.threshold(t)` | 1 | Byzantine fault tolerance |
 /// | `.instance_id(id)` | random u64 | Computation identifier |
+/// | `.with_inputs(inputs)` | none | Named inputs for computation |
 /// | `.backend(backend)` | HoneyBadger | MPC backend protocol |
 /// | `.config_file(path)` | none | Load MPC config from TOML file |
 ///
@@ -118,6 +119,7 @@ pub struct Stoffel {
     threshold: Option<usize>,
     instance_id: Option<u64>,
     mpc_backend: Option<backend::MpcBackend>,
+    inputs: Vec<(String, types::Value)>,
 }
 
 impl Stoffel {
@@ -191,6 +193,7 @@ impl Stoffel {
             threshold: None,
             instance_id: None,
             mpc_backend: None,
+            inputs: Vec::new(),
         }
     }
 
@@ -223,6 +226,18 @@ impl Stoffel {
         self
     }
 
+    /// Provide named inputs for the computation.
+    ///
+    /// Inputs are passed to the MPC network via the coordinator during
+    /// `execute_local()`, or stored in the runtime for use with `client()`.
+    pub fn with_inputs(mut self, inputs: &[(&str, impl Into<types::Value> + Clone)]) -> Self {
+        self.inputs = inputs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone().into()))
+            .collect();
+        self
+    }
+
     /// Set the MPC backend protocol.
     ///
     /// Default: [`MpcBackend::HoneyBadger`](backend::MpcBackend::HoneyBadger).
@@ -248,6 +263,12 @@ impl Stoffel {
         }
         if self.instance_id.is_none() {
             self.instance_id = Some(stoffel_config.mpc.instance_id);
+        }
+        if self.mpc_backend.is_none() {
+            self.mpc_backend = Some(match stoffel_config.mpc.backend {
+                config::MpcBackendConfig::HoneyBadger => backend::MpcBackend::HoneyBadger,
+                config::MpcBackendConfig::Avss { curve } => backend::MpcBackend::Avss { curve },
+            });
         }
 
         Ok(self)
