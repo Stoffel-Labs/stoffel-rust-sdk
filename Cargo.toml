@@ -8,14 +8,14 @@ license = "Apache-2.0"
 repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 
 [dependencies]
-# Core Stoffel dependencies (local paths, repos on correct branches)
-stoffellang = { path = "../../Stoffel-Lang" }
-stoffel-vm = { path = "../../StoffelVM/crates/stoffel-vm" }
-stoffel-vm-types = { path = "../../StoffelVM/crates/stoffel-vm-types" }
-stoffelmpc-mpc = { path = "../../mpc-protocols/mpc" }
-stoffelmpc-network = { path = "../../mpc-protocols/network" }
-stoffelnet = { path = "../../stoffel-networking" }
-stoffel-mpc-coordinator = { path = "../../stoffel-mpc-coordinator" }
+# Core Stoffel dependencies (pinned to feature branches)
+stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", branch = "feature/adkg-compatibility" }
+stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "adkg-implementation" }
+stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", branch = "adkg-implementation" }
+stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "dev" }
+stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", branch = "dev" }
+stoffelnet = { git = "https://github.com/Stoffel-Labs/stoffel-networking.git", branch = "feature/client-and-node-list-consensus" }
+stoffel-mpc-coordinator = { git = "https://github.com/Stoffel-Labs/stoffel-mpc-coordinator.git", branch = "feature/submit-program-trait" }
 
 # Utility dependencies
 anyhow = "1.0"
