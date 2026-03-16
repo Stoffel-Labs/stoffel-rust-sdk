@@ -7,15 +7,17 @@
 //!
 //! ## Quick Start
 //!
-//! ### Local Execution
+//! ### Local Execution (Full MPC on localhost)
 //!
 //! ```rust,no_run
 //! use stoffel_rust_sdk::prelude::*;
 //!
-//! # fn main() -> Result<()> {
-//! let result = Stoffel::compile("main main() -> int64:\n  return 42")?
-//!     .execute_local()?;
-//! println!("Result: {:?}", result);
+//! # async fn run() -> Result<()> {
+//! let results = Stoffel::compile("main main() -> int64:\n  return 42")?
+//!     .parties(5)
+//!     .threshold(1)
+//!     .execute_local()
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -91,8 +93,8 @@ pub use error::{Error, Result};
 /// | Method | Description |
 /// |--------|-------------|
 /// | `.build()` | Validate and produce a `StoffelRuntime` |
-/// | `.execute_local()` | Convenience: compile and run on local VM |
-/// | `.execute_local_function(name)` | Run a specific function locally |
+/// | `.execute_local().await` | Full MPC on localhost (async) |
+/// | `.execute_local_function(name).await` | Named function, full MPC (async) |
 ///
 /// # Examples
 ///
@@ -100,16 +102,15 @@ pub use error::{Error, Result};
 /// use stoffel_rust_sdk::Stoffel;
 ///
 /// # fn main() -> stoffel_rust_sdk::Result<()> {
-/// // Quick local execution
-/// let result = Stoffel::compile("main main() -> int64:\n  return 42")?
-///     .execute_local()?;
-///
-/// // Full MPC runtime
+/// // Build MPC runtime
 /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
 ///     .parties(5)
 ///     .threshold(1)
 ///     .instance_id(42)
 ///     .build()?;
+///
+/// // Access compiled program
+/// let program = runtime.program();
 /// # Ok(())
 /// # }
 /// ```
@@ -332,30 +333,65 @@ impl Stoffel {
         })
     }
 
-    /// Compile and execute the "main" function locally on the VM.
+    /// Execute the computation locally with a full MPC network on localhost.
     ///
-    /// This is a convenience shortcut that skips MPC configuration entirely.
-    /// Useful for quick testing.
+    /// Spawns N MPC server tasks + an off-chain coordinator task as in-process
+    /// Tokio tasks. All communication uses real QUIC on localhost ports.
+    ///
+    /// **WARNING:** This is for development and testing only. All parties share
+    /// a process address space, violating MPC party isolation. For production,
+    /// use separate processes via the Stoffel CLI (`stoffel deploy`).
+    /// See HackMD note `_6iDFAwMSOm-QDua12Wleg` for security analysis.
+    ///
+    /// # Flow
+    ///
+    /// 1. Build `StoffelRuntime` with MPC config
+    /// 2. Spawn off-chain coordinator on localhost
+    /// 3. Spawn N MPC server tasks (one per party)
+    /// 4. Submit program to coordinator
+    /// 5. Submit inputs via coordinator
+    /// 6. Execute MPC computation
+    /// 7. Collect and return outputs
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use stoffel_rust_sdk::Stoffel;
-    /// # fn main() -> stoffel_rust_sdk::Result<()> {
-    /// let result = Stoffel::compile("main main() -> int64:\n  return 42")?
-    ///     .execute_local()?;
+    /// # async fn run() -> stoffel_rust_sdk::Result<()> {
+    /// let results = Stoffel::compile("main main() -> int64:\n  return 42")?
+    ///     .parties(5)
+    ///     .threshold(1)
+    ///     .execute_local()
+    ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn execute_local(self) -> Result<vm::Value> {
-        let v = vm::VM::new();
-        v.run_bytecode(&self.bytecode, "main")
+    pub async fn execute_local(self) -> Result<Vec<vm::Value>> {
+        let runtime = self.build()?;
+
+        // TODO: Full MPC-on-localhost implementation (RFC-001B)
+        // 1. Spawn OffChainCoordinator task
+        // 2. Spawn N MpcRunner tasks on localhost ports
+        // 3. coordinator.submit_program(bytecode)
+        // 4. Submit inputs via coordinator
+        // 5. Coordinator drives rounds: preprocessing → input → execution → output
+        // 6. Collect output shares, reconstruct plaintext
+
+        Err(Error::Computation(
+            "execute_local() MPC-on-localhost not yet implemented. \
+             Use runtime.program().execute_local() for plaintext VM testing."
+                .into(),
+        ))
     }
 
-    /// Compile and execute a specific function locally on the VM.
-    pub fn execute_local_function(self, name: &str) -> Result<vm::Value> {
-        let v = vm::VM::new();
-        v.run_bytecode(&self.bytecode, name)
+    /// Execute a specific function locally with a full MPC network.
+    ///
+    /// Same as [`execute_local()`](Self::execute_local) but for a named function.
+    pub async fn execute_local_function(self, name: &str) -> Result<Vec<vm::Value>> {
+        // TODO: same as execute_local but with function name
+        Err(Error::Computation(
+            "execute_local_function() MPC-on-localhost not yet implemented.".into(),
+        ))
     }
 
 }
