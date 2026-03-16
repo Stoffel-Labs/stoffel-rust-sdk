@@ -1,13 +1,14 @@
 //! # Stoffel Rust SDK
 //!
-//! A production-ready Rust SDK for the Stoffel ecosystem, providing:
-//! - **Stoffel-Lang**: Compile Stoffel programs to bytecode
-//! - **StoffelVM**: Execute bytecode in the Stoffel virtual machine
-//! - **MPC Infrastructure**: Multi-party computation configuration and execution
+//! The Rust SDK for building Multi-Party Computation (MPC) applications with Stoffel.
+//!
+//! - **Compile** programs written in StoffelLang to bytecode
+//! - **Execute** them across an MPC network where no party sees plaintext data
+//! - **Deploy** production MPC networks with generated Docker artifacts
 //!
 //! ## Quick Start
 //!
-//! ### Local Execution (Full MPC on localhost)
+//! ### Compile and Run Locally
 //!
 //! ```rust,no_run
 //! use stoffel_rust_sdk::prelude::*;
@@ -22,7 +23,31 @@
 //! # }
 //! ```
 //!
-//! ### Building an MPC Runtime
+//! [`execute_local()`](Stoffel::execute_local) delegates to
+//! [`StoffelNetwork`](network::StoffelNetwork), which composes a coordinator
+//! and N server tasks on localhost for development and testing.
+//!
+//! ### Deploy to Production
+//!
+//! ```rust,no_run
+//! use stoffel_rust_sdk::prelude::*;
+//!
+//! # fn main() -> Result<()> {
+//! StoffelNetwork::builder()
+//!     .program_file("program.stfl")
+//!     .parties(5)
+//!     .threshold(1)
+//!     .build()?
+//!     .scaffold("./deployment")?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! [`scaffold()`](network::StoffelNetwork::scaffold) generates a complete
+//! deployment directory — `main.rs` binaries, TOML configs, `docker-compose.yml`,
+//! and Dockerfiles — ready for `docker-compose up`.
+//!
+//! ### Build an MPC Runtime
 //!
 //! ```rust,no_run
 //! use stoffel_rust_sdk::prelude::*;
@@ -33,11 +58,25 @@
 //!     .threshold(1)
 //!     .build()?;
 //!
-//! // Access bytecode
 //! let bytecode = runtime.program().bytecode();
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ## Architecture
+//!
+//! ```text
+//! StoffelNetwork (orchestrator)
+//!   ├── StoffelCoordinator    JSON-RPC/TLS round management
+//!   ├── StoffelServer × N     QUIC P2P, HoneyBadger MPC engine
+//!   └── StoffelClient         input submission, output retrieval
+//! ```
+//!
+//! The [`Stoffel`] builder is the quick-start entry point. For full control
+//! over individual actors, use [`StoffelCoordinator`](coordinator::offchain::StoffelCoordinator),
+//! [`StoffelServer`](server::StoffelServer), and [`StoffelClient`](client::StoffelClient)
+//! directly. All actors support [`from_config()`](server::StoffelServer::from_config)
+//! for TOML-driven deployment with env var overrides.
 
 // ── Module declarations ──────────────────────────────────────────────
 
@@ -63,11 +102,14 @@ pub use error::{Error, Result};
 
 /// The main entry point for the Stoffel SDK.
 ///
-/// `Stoffel` acts as both entry point and builder: you create an instance via one of the
-/// factory methods ([`compile`](Self::compile), [`compile_file`](Self::compile_file),
-/// [`load`](Self::load)), configure MPC parameters with chained methods, and then either
-/// [`build()`](Self::build) a [`StoffelRuntime`](runtime::StoffelRuntime) or call
-/// [`execute_local()`](Self::execute_local) for quick testing.
+/// `Stoffel` is a compile-configure-run builder. Create an instance via a
+/// factory method, configure MPC parameters, then either [`build()`](Self::build)
+/// a [`StoffelRuntime`](runtime::StoffelRuntime) or call
+/// [`execute_local()`](Self::execute_local) to run a full MPC network on localhost.
+///
+/// For production deployment, use [`StoffelNetwork`](network::StoffelNetwork)
+/// directly — it provides [`scaffold()`](network::StoffelNetwork::scaffold) to
+/// generate Docker-ready deployment artifacts.
 ///
 /// # Entry Points
 ///
@@ -92,7 +134,7 @@ pub use error::{Error, Result};
 /// | Method | Description |
 /// |--------|-------------|
 /// | `.build()` | Validate and produce a `StoffelRuntime` |
-/// | `.execute_local().await` | Full MPC on localhost (async) |
+/// | `.execute_local().await` | Full MPC on localhost via [`StoffelNetwork`](network::StoffelNetwork) |
 /// | `.execute_local_function(name).await` | Named function, full MPC (async) |
 ///
 /// # Examples
@@ -101,13 +143,11 @@ pub use error::{Error, Result};
 /// use stoffel_rust_sdk::Stoffel;
 ///
 /// # fn main() -> stoffel_rust_sdk::Result<()> {
-/// // Build MPC runtime
 /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
 ///     .parties(5)
 ///     .threshold(1)
 ///     .build()?;
 ///
-/// // Access compiled program
 /// let program = runtime.program();
 /// # Ok(())
 /// # }
@@ -313,22 +353,13 @@ impl Stoffel {
 
     /// Execute the computation locally with a full MPC network on localhost.
     ///
-    /// Spawns N MPC server tasks + an off-chain coordinator task as in-process
-    /// Tokio tasks. All communication uses real QUIC on localhost ports.
+    /// Delegates to [`StoffelNetwork::execute_local()`](network::StoffelNetwork::execute_local),
+    /// which composes an off-chain coordinator and N server tasks as in-process
+    /// Tokio tasks.
     ///
-    /// **WARNING:** This is for development and testing only. All parties share
-    /// a process address space, violating MPC party isolation. For production,
-    /// use separate processes via the Stoffel CLI (`stoffel deploy`).
-    ///
-    /// # Flow
-    ///
-    /// 1. Build `StoffelRuntime` with MPC config
-    /// 2. Spawn off-chain coordinator on localhost
-    /// 3. Spawn N MPC server tasks (one per party)
-    /// 4. Submit program to coordinator
-    /// 5. Submit inputs via coordinator
-    /// 6. Execute MPC computation
-    /// 7. Collect and return outputs
+    /// **Development only.** All parties share a process address space. For
+    /// production, use [`StoffelNetwork::scaffold()`](network::StoffelNetwork::scaffold)
+    /// to generate deployment artifacts with proper process isolation.
     ///
     /// # Example
     ///
