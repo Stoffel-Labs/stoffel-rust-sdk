@@ -118,7 +118,7 @@ impl Compiler {
     /// Compile source code from a file
     pub fn compile_file(&self, path: &str) -> Result<Vec<u8>> {
         let source = std::fs::read_to_string(path)
-            .map_err(|e| Error::Io(e))?;
+            .map_err(Error::Io)?;
         self.compile_source(&source)
     }
 

@@ -67,7 +67,7 @@ impl Program {
 
     /// Save the bytecode to a file
     pub fn save(&self, path: &str) -> Result<()> {
-        std::fs::write(path, &self.bytecode).map_err(|e| Error::Io(e))
+        std::fs::write(path, &self.bytecode).map_err(Error::Io)
     }
 
     /// List all functions in this program

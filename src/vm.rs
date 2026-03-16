@@ -90,7 +90,7 @@ impl VM {
     /// Load bytecode from a file
     pub fn load_bytecode(&self, path: &str) -> Result<LoadedProgram> {
         let bytecode = std::fs::read(path)
-            .map_err(|e| Error::Io(e))?;
+            .map_err(Error::Io)?;
         Ok(LoadedProgram {
             bytecode,
             debug: self.debug,
@@ -107,7 +107,7 @@ impl VM {
 
         // Execute the entry function
         vm.execute(entry_function)
-            .map(|v| convert_vm_value_to_sdk_value(v))
+            .map(convert_vm_value_to_sdk_value)
             .map_err(|e| Error::Runtime(format!("Execution failed: {}", e)))
     }
 
@@ -181,7 +181,7 @@ impl LoadedProgram {
 
         // Execute with args
         vm.execute_with_args(function_name, &vm_args)
-            .map(|v| convert_vm_value_to_sdk_value(v))
+            .map(convert_vm_value_to_sdk_value)
             .map_err(|e| Error::Runtime(format!("Execution failed: {}", e)))
     }
 
