@@ -44,9 +44,9 @@ fn main() -> Result<()> {
     let mpc = runtime.mpc_config().unwrap();
     assert_eq!(mpc.parties, 5);
 
-    // Create participants from runtime
+    // Create participant builders from runtime
     let server = runtime.server(0).bind("0.0.0.0:19200").build()?;
-    let client = runtime.client().build();
+    let client_builder = runtime.client().server("127.0.0.1:9000");
 
     Ok(())
 }
@@ -128,7 +128,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-stoffel-rust-sdk = { git = "https://github.com/Stoffel-Labs/stoffel-rust-sdk.git", branch = "feature/sdk-v0.1.0-rewrite" }
+stoffel-rust-sdk = { git = "https://github.com/Stoffel-Labs/stoffel-rust-sdk.git", branch = "feature/sdk-v0.1.0-reconcile" }
 ```
 
 Requires `~/.cargo/config.toml` for private repo access:
@@ -290,7 +290,7 @@ match result {
 
 ```bash
 cargo build          # Build
-cargo test           # Run all tests (101 unit + 29 doc)
+cargo test           # Run all tests (130 total: 101 unit + 29 doc)
 cargo fmt            # Format
 cargo clippy         # Lint
 cargo doc --open     # Documentation
