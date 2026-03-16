@@ -7,33 +7,26 @@ The reference Rust SDK for building Multi-Party Computation (MPC) applications w
 The Stoffel Rust SDK v0.1.0 provides a unified API for:
 
 - **Stoffel-Lang** &mdash; Compile Stoffel programs to bytecode
-- **StoffelVM** &mdash; Execute bytecode locally for testing
-- **MPC Backends** &mdash; HoneyBadger (Byzantine fault-tolerant) and AVSS (threshold crypto)
-- **Client/Server Architecture** &mdash; Production-ready MPCaaS model
-- **On-Chain Coordination** &mdash; Optional blockchain-based orchestration
+- **MPC Backends** &mdash; HoneyBadger (Byzantine fault-tolerant) and AVSS (threshold crypto) via StoffelVM
+- **Coordinator-Centric Architecture** &mdash; Program distribution and round orchestration via coordinator
+- **Client/Server Model** &mdash; Clients submit inputs to coordinator, servers execute MPC computation
+- **On-Chain Coordination** &mdash; Optional blockchain-based orchestration via Solidity contracts
 - **Observability** &mdash; Metrics, health checks, and OpenTelemetry integration
+
+## Architecture
+
+```
+SDK (thin layer)                    Coordinator (control plane)         StoffelVM (data plane)
+  Stoffel::compile() -> bytecode      Receives program from client       MpcRunner executes bytecode
+  StoffelClient -> coordinator        Distributes to MPC network         HoneyBadger or AVSS engine
+  StoffelServer -> registers          Manages round state machine        Returns output shares
+```
+
+The SDK compiles, the coordinator orchestrates, the VM executes. The coordinator distributes the program to the MPC network, enforcing bytecode consistency by construction.
 
 ## Quick Start
 
-### Local Execution
-
-```rust
-use stoffel_rust_sdk::prelude::*;
-
-fn main() -> Result<()> {
-    // Compile and execute locally
-    let result = Stoffel::compile("
-        main main() -> int64:
-            return 42
-    ")?
-    .execute_local()?;
-
-    println!("Result: {:?}", result);
-    Ok(())
-}
-```
-
-### Building an MPC Runtime
+### Build an MPC Runtime
 
 ```rust
 use stoffel_rust_sdk::prelude::*;
@@ -45,15 +38,43 @@ fn main() -> Result<()> {
     ")?
     .parties(5)        // 5-party MPC network
     .threshold(1)      // Tolerates 1 Byzantine fault
-    .instance_id(42)   // Unique computation ID
     .build()?;
 
-    // Test locally before deploying
-    let result = runtime.program().execute_local()?;
-    println!("Result: {:?}", result);
+    // Access configuration
+    let mpc = runtime.mpc_config().unwrap();
+    assert_eq!(mpc.parties, 5);
+
+    // Create participants from runtime
+    let server = runtime.server(0).bind("0.0.0.0:19200").build()?;
+    let client = runtime.client().build();
+
     Ok(())
 }
 ```
+
+### Full MPC on Localhost (Development)
+
+```rust
+use stoffel_rust_sdk::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let results = Stoffel::compile("
+        main main(a: secret int64, b: secret int64) -> secret int64:
+            return a + b
+    ")?
+    .parties(5)
+    .threshold(1)
+    .with_inputs(&[("a", 42i64), ("b", 58i64)])
+    .execute_local()  // Spawns coordinator + N servers as Tokio tasks
+    .await?;
+
+    println!("Result: {:?}", results);
+    Ok(())
+}
+```
+
+> **Note:** `execute_local()` runs all parties in a single process for development convenience. For production, deploy separate processes via the Stoffel CLI (`stoffel deploy`). See [security analysis](https://hackmd.io/@stoffel-labs/_6iDFAwMSOm-QDua12Wleg) for details on shared-memory implications.
 
 ### Production Server
 
@@ -63,12 +84,14 @@ use stoffel_rust_sdk::server::StoffelServer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Server registers with coordinator and receives program from it
     let server = StoffelServer::builder(0)
         .bind("0.0.0.0:19200")
+        .coordinator("coordinator.example.com:31415")
         .with_peers(&[
-            (1, "192.168.1.2:19300"),
-            (2, "192.168.1.3:19300"),
-            (3, "192.168.1.4:19300"),
+            (1, "192.168.1.2:19200"),
+            (2, "192.168.1.3:19200"),
+            (3, "192.168.1.4:19200"),
         ])
         .with_preprocessing(1000, 500)
         .build()?;
@@ -81,12 +104,13 @@ async fn main() -> Result<()> {
 ### Client
 
 ```rust
-use stoffel_rust_sdk::client::{StoffelClient, ClientBuilder};
+use stoffel_rust_sdk::client::StoffelClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Client connects to coordinator, not individual servers
     let client = StoffelClient::builder()
-        .servers(&["server1:19200", "server2:19200", "server3:19200"])
+        .coordinator("coordinator.example.com:31415")
         .connect()
         .await?;
 
@@ -107,60 +131,49 @@ Add to your `Cargo.toml`:
 stoffel-rust-sdk = { git = "https://github.com/Stoffel-Labs/stoffel-rust-sdk.git", branch = "feature/sdk-v0.1.0-rewrite" }
 ```
 
+Requires `~/.cargo/config.toml` for private repo access:
+
+```toml
+[net]
+git-fetch-with-cli = true
+```
+
 **Requirements:** Rust 1.75+ (edition 2021)
 
-## Architecture
-
-```
-Stoffel::compile(source)        # Entry point
-    .parties(5).threshold(1)    # MPC configuration
-    .build()                    # Validates and produces StoffelRuntime
-        |
-        v
-StoffelRuntime                  # Compiled program + MPC config
-    .program()                  # Access bytecode for local testing
-    .execute_local()            # Quick VM execution
-```
-
-### Module Structure
+## Module Structure
 
 ```
 src/
 ├── lib.rs              # Stoffel entry point & builder
-├── runtime.rs          # StoffelRuntime
-├── error.rs            # Error types: Error, NetworkError, ConsensusError
+├── runtime.rs          # StoffelRuntime (program + MpcConfig + inputs)
+├── error.rs            # Error, NetworkError, ConsensusError
 ├── types.rs            # PartyId, ClientId, ComputationId, Value
-├── config/             # Configuration system
-│   ├── mod.rs          # MpcConfig, NetworkConfig, PreprocessingConfig, Curve
+├── config/             # Configuration system (RFC-008)
+│   ├── mod.rs          # MpcConfig, NetworkConfig, StoffelConfig, Curve
 │   └── validation.rs   # n >= 4, n >= 3t+1
-├── backend/            # MPC protocol backends
+├── backend/            # MPC backends — re-exports from StoffelVM
 │   ├── mod.rs          # MpcBackend enum, MpcEngine trait, share types
-│   ├── honeybadger.rs  # HoneyBadgerEngine
-│   └── avss.rs         # AvssEngine + KeyStore
-├── client.rs           # StoffelClient API
-├── server.rs           # StoffelServer API
+│   ├── honeybadger.rs  # HoneyBadgerMpcEngine (re-export)
+│   └── avss.rs         # AvssMpcEngine (re-export)
+├── client.rs           # StoffelClient (connects to coordinator)
+├── server.rs           # StoffelServer (registers with coordinator)
 ├── consensus.rs        # ConsensusGate, VerifiedOrdering
-├── coordinator/        # On-chain / off-chain coordination
+├── coordinator/        # Coordination layer
 │   ├── mod.rs          # Round state machine (7 phases)
-│   ├── offchain.rs     # OffChainCoordinator (local testing)
-│   └── onchain.rs      # OnChainCoordinator (Solidity contract)
+│   ├── offchain.rs     # OffChainCoordinator + real coordinator re-export
+│   └── onchain.rs      # OnChainCoordinator + real coordinator re-export
 ├── observability/      # Metrics & health
 │   ├── mod.rs          # Counter, Gauge, Histogram, ServerMetrics, HealthStatus
-│   └── otel.rs         # OtelConfig placeholder
+│   └── otel.rs         # OtelConfig
 ├── compiler.rs         # Stoffel-Lang compiler wrapper
 ├── vm.rs               # StoffelVM execution wrapper
 ├── program.rs          # Program (pure bytecode container)
 └── prelude.rs          # Convenient re-exports
 ```
 
-### MPC Participant Roles
+## Protocol Backends
 
-| Role | Provides Inputs | Computes | Receives Outputs |
-|------|:-:|:-:|:-:|
-| **StoffelClient** | Yes | No | Yes |
-| **StoffelServer** | No | Yes | No |
-
-### Protocol Backends
+The SDK re-exports real MPC engines from StoffelVM:
 
 | Feature | HoneyBadger | AVSS |
 |---------|:-:|:-:|
@@ -169,6 +182,14 @@ src/
 | EC Operations | No | Yes |
 | Threshold Signatures | No | Yes |
 | Default | Yes | No |
+
+```rust
+// Select protocol at build time
+let runtime = Stoffel::compile(source)?
+    .backend(MpcBackend::Avss { curve: Curve::Bn254 })
+    .parties(5)
+    .build()?;
+```
 
 ## Configuration
 
@@ -189,12 +210,18 @@ expected_parties = 7
 consensus_timeout_ms = 60000
 
 [network.peers]
-1 = "192.168.1.2:19300"
-2 = "192.168.1.3:19300"
+1 = "192.168.1.2:19200"
+2 = "192.168.1.3:19200"
 
 [preprocessing]
 triples = 1000
 random_shares = 500
+```
+
+```rust
+let runtime = Stoffel::compile_file("program.stfl")?
+    .config_file("stoffel.toml")?
+    .build()?;
 ```
 
 ### Environment Variable Overrides
@@ -210,12 +237,6 @@ Priority: **Env > File > Default**
 | `STOFFEL_PARTY_ID` | `network.party_id` |
 | `STOFFEL_BIND_ADDRESS` | `network.bind_address` |
 
-```rust
-use stoffel_rust_sdk::config::StoffelConfig;
-
-let config = StoffelConfig::load_with_env("stoffel.toml")?;
-```
-
 ### Valid Party/Threshold Configurations
 
 | Parties | Threshold | Valid | Notes |
@@ -227,25 +248,16 @@ let config = StoffelConfig::load_with_env("stoffel.toml")?;
 | 3 | 1 | No | Below minimum |
 | 5 | 2 | No | 5 < 3(2)+1 = 7 |
 
-## On-Chain Coordination
+## Coordination
 
-The SDK supports blockchain-based MPC orchestration via a round state machine that mirrors the `StoffelCoordinator` Solidity contract:
+The coordinator manages the MPC round state machine and distributes the program to the network:
 
 ```
 Preprocessing -> InputMaskReservation -> CollectingInputs
     -> InputsCollectionEnd -> Execution -> ExecutionEnd -> OutputCollection
 ```
 
-```rust
-use stoffel_rust_sdk::coordinator::offchain::OffChainCoordinator;
-use stoffel_rust_sdk::coordinator::Round;
-
-let coordinator = OffChainCoordinator::new();
-assert_eq!(coordinator.current_round()?, Round::Preprocessing);
-
-let mask = coordinator.reserve_input_mask()?;
-coordinator.advance_round()?;
-```
+Off-chain (testing) and on-chain (production via Solidity contract) coordinators are both supported.
 
 ## Observability
 
@@ -255,31 +267,13 @@ use stoffel_rust_sdk::observability::{ServerMetrics, HealthStatus};
 let metrics = ServerMetrics::new();
 metrics.connected_peers.inc();
 metrics.computation_latency_ms.observe(42.0);
-
-assert_eq!(metrics.connected_peers.get(), 1);
-```
-
-Health checks:
-
-```rust
-use stoffel_rust_sdk::server::StoffelServer;
-
-let server = StoffelServer::builder(0).build()?;
-match server.health() {
-    HealthStatus::Healthy => println!("OK"),
-    HealthStatus::Degraded { reason } => println!("Degraded: {}", reason),
-    HealthStatus::Unhealthy { reason } => eprintln!("Down: {}", reason),
-}
 ```
 
 ## Error Handling
 
-The SDK provides structured error types with context chaining:
-
 ```rust
 use stoffel_rust_sdk::error::{Error, NetworkError, ConsensusError, ResultExt};
 
-// Match on specific error types
 match result {
     Err(Error::Network(NetworkError::ConnectionTimeout { server, .. })) => {
         eprintln!("Server {} not responding", server);
@@ -290,21 +284,24 @@ match result {
     Err(e) => eprintln!("Error chain: {}", e.chain()),
     Ok(_) => {}
 }
-
-// Add context to errors
-let data = std::fs::read("program.stfb")
-    .context("reading bytecode file")?;
 ```
 
 ## Development
 
 ```bash
 cargo build          # Build
-cargo test           # Run all tests (120 unit + 38 doc)
+cargo test           # Run all tests (101 unit + 29 doc)
 cargo fmt            # Format
 cargo clippy         # Lint
 cargo doc --open     # Documentation
 ```
+
+## Related Documentation
+
+- [SDK PRD](https://hackmd.io/@stoffel-labs/5c0V-JoJTbeH7YqiHdDFpA)
+- [CLI PRD](https://hackmd.io/@stoffel-labs/bTPfeukzQceym6OES8Gvzg)
+- [RFC Book](https://hackmd.io/@stoffel-labs/4S4LBWzwS_aznua_GWSY4g) (14 RFCs)
+- [In-Process MPC Security Analysis](https://hackmd.io/@stoffel-labs/_6iDFAwMSOm-QDua12Wleg)
 
 ## License
 
