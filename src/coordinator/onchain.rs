@@ -1,16 +1,13 @@
 //! On-chain coordination via the StoffelCoordinator Solidity contract.
 //!
-//! This module is a **placeholder**. Full implementation requires integration
-//! with an Ethereum client library (ethers-rs or alloy) and the generated
-//! contract bindings from `Stoffel-solidity-SDK`.
+//! This module provides:
+//! - [`OnChainCoordinator`]: SDK placeholder with stub methods
+//! - [`RealOnChainCoordinator`]: Re-export of the real `stoffel-mpc-coordinator`
+//!   on-chain implementation that uses alloy for Ethereum interaction
 //!
-//! # Future Work
-//!
-//! When wired up, [`OnChainCoordinator`] will:
-//! 1. Read the current round from the on-chain state machine.
-//! 2. Submit transactions to advance rounds.
-//! 3. Watch for `RoundChanged` events to notify local participants.
-//! 4. Reserve input-mask indices via contract calls.
+//! **Note:** The real `OnChainCoordinator` uses direct Ethereum RPC and does
+//! implement the `Coordinator` trait. Authentication uses PoP (Proof of
+//! Possession) of Ethereum addresses.
 //!
 //! The on-chain round state machine mirrors [`super::Round`] exactly:
 //!
@@ -22,6 +19,9 @@
 use super::Round;
 use crate::error::{Error, Result};
 use crate::types::ComputationId;
+
+// Re-export the real on-chain coordinator from stoffel-mpc-coordinator crate
+pub use stoffel_mpc_coordinator::on_chain::OnChainCoordinator as RealOnChainCoordinator;
 
 // ---------------------------------------------------------------------------
 // OnChainCoordinator

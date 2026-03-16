@@ -1,8 +1,9 @@
 //! Off-chain coordinator for local testing and development.
 //!
-//! [`OffChainCoordinator`] keeps the round state entirely in memory, making it
-//! ideal for integration tests and local multi-party simulations where no
-//! blockchain is available.
+//! This module provides:
+//! - [`OffChainCoordinator`]: Simple in-memory round state machine for testing
+//! - [`RealOffChainCoordinator`]: Re-export of the full `stoffel-mpc-coordinator`
+//!   implementation with RPC server, TLS, and input masking protocol
 //!
 //! # Example
 //!
@@ -18,6 +19,12 @@
 //! ```
 
 use std::sync::{Arc, Mutex};
+
+// Re-export the real coordinator from stoffel-mpc-coordinator crate
+pub use stoffel_mpc_coordinator::off_chain::OffChainCoordinator as RealOffChainCoordinator;
+
+// Re-export the Coordinator trait for generic usage
+pub use stoffel_mpc_coordinator::Coordinator;
 
 use super::{MaskIndex, Round};
 use crate::error::{Error, Result};
