@@ -328,6 +328,7 @@ impl Stoffel {
         Ok(runtime::StoffelRuntime {
             program: program::Program::new(self.bytecode),
             mpc_config,
+            inputs: self.inputs,
         })
     }
 

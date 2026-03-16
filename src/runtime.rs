@@ -25,7 +25,7 @@
 //! # }
 //! ```
 
-use crate::{config, program, vm};
+use crate::{client, config, program, server, types, vm};
 
 /// A compiled Stoffel program paired with MPC infrastructure configuration.
 ///
@@ -64,6 +64,7 @@ use crate::{config, program, vm};
 pub struct StoffelRuntime {
     pub(crate) program: program::Program,
     pub(crate) mpc_config: Option<config::MpcConfig>,
+    pub(crate) inputs: Vec<(String, types::Value)>,
 }
 
 impl StoffelRuntime {
@@ -91,6 +92,39 @@ impl StoffelRuntime {
     /// Returns `None` if no MPC configuration was set (i.e., no `.parties()` call).
     pub fn mpc_config(&self) -> Option<&config::MpcConfig> {
         self.mpc_config.as_ref()
+    }
+
+    /// Get the stored inputs.
+    pub fn inputs(&self) -> &[(String, types::Value)] {
+        &self.inputs
+    }
+
+    /// Create a client builder pre-configured with this runtime's MPC config.
+    ///
+    /// The client will interact with the coordinator to submit inputs and
+    /// receive computation outputs.
+    pub fn client(&self) -> client::ClientBuilder {
+        let mut builder = client::ClientBuilder::new();
+        if let Some(ref mpc) = self.mpc_config {
+            builder = builder.client_id(types::ClientId(mpc.instance_id));
+        }
+        builder
+    }
+
+    /// Create a server builder pre-configured with this runtime's MPC config.
+    ///
+    /// The server registers with the coordinator, receives the program,
+    /// and executes MPC computation using the selected backend engine.
+    pub fn server(&self, party_id: usize) -> server::ServerBuilder {
+        let mut builder = server::ServerBuilder::new(party_id);
+        if let Some(ref mpc) = self.mpc_config {
+            builder = builder
+                .with_preprocessing(
+                    1000, // default triples
+                    500,  // default random shares
+                );
+        }
+        builder
     }
 
     /// Execute the program locally on the VM (convenience method).
