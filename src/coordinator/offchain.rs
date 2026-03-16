@@ -18,6 +18,7 @@
 //! assert_eq!(next, Round::InputMaskReservation);
 //! ```
 
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 // Re-export the real coordinator from stoffel-mpc-coordinator crate
@@ -26,11 +27,228 @@ pub use stoffel_mpc_coordinator::off_chain::OffChainCoordinator as RealOffChainC
 // Re-export the Coordinator trait for generic usage
 pub use stoffel_mpc_coordinator::Coordinator;
 
+// Re-export self-signed cert utilities
+pub use stoffel_mpc_coordinator::self_signed_certs;
+
+use crate::config::{CoordinatorConfig, TlsConfig};
 use super::{MaskIndex, Round};
 use crate::error::{Error, Result};
 
 // ---------------------------------------------------------------------------
-// OffChainCoordinator
+// StoffelCoordinator (production wrapper)
+// ---------------------------------------------------------------------------
+
+/// Builder for constructing a [`StoffelCoordinator`] that wraps the real
+/// off-chain coordinator RPC server.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use stoffel_rust_sdk::coordinator::offchain::StoffelCoordinator;
+///
+/// # async fn example() -> stoffel_rust_sdk::error::Result<()> {
+/// let coordinator = StoffelCoordinator::builder()
+///     .bind("0.0.0.0:31415")
+///     .expected_parties(5)
+///     .threshold(1)
+///     .build()
+///     .await?;
+///
+/// println!("Coordinator listening on {}", coordinator.addr());
+/// coordinator.run_forever().await?;
+/// # Ok(())
+/// # }
+/// ```
+pub struct CoordinatorBuilder {
+    bind_addr: SocketAddr,
+    expected_parties: usize,
+    threshold: usize,
+    n_outputs: u64,
+    tls_mode: TlsConfig,
+    program_bytecode: Option<Vec<u8>>,
+}
+
+impl CoordinatorBuilder {
+    /// Create a new builder with default settings.
+    pub fn new() -> Self {
+        Self {
+            bind_addr: "0.0.0.0:31415".parse().unwrap(),
+            expected_parties: 5,
+            threshold: 1,
+            n_outputs: 1,
+            tls_mode: TlsConfig::SelfSigned,
+            program_bytecode: None,
+        }
+    }
+
+    /// Set the bind address for the coordinator RPC server.
+    pub fn bind(mut self, addr: &str) -> Self {
+        if let Ok(parsed) = addr.parse() {
+            self.bind_addr = parsed;
+        }
+        self
+    }
+
+    /// Set the number of expected MPC server parties.
+    pub fn expected_parties(mut self, n: usize) -> Self {
+        self.expected_parties = n;
+        self
+    }
+
+    /// Set the fault-tolerance threshold.
+    pub fn threshold(mut self, t: usize) -> Self {
+        self.threshold = t;
+        self
+    }
+
+    /// Set the number of expected computation outputs.
+    pub fn n_outputs(mut self, n: u64) -> Self {
+        self.n_outputs = n;
+        self
+    }
+
+    /// Set the TLS mode.
+    pub fn tls(mut self, tls: TlsConfig) -> Self {
+        self.tls_mode = tls;
+        self
+    }
+
+    /// Set the program bytecode. If not provided, clients can submit later.
+    pub fn program(mut self, bytecode: Vec<u8>) -> Self {
+        self.program_bytecode = Some(bytecode);
+        self
+    }
+
+    /// Build and start the coordinator RPC server.
+    ///
+    /// The RPC server starts in a background Tokio task. Call
+    /// [`StoffelCoordinator::run_forever`] to block until shutdown.
+    pub async fn build(self) -> Result<StoffelCoordinator> {
+        let prog_hash = match &self.program_bytecode {
+            Some(bytes) => stoffel_mpc_coordinator::compute_prog_hash(bytes),
+            None => [0u8; 32], // deferred submission
+        };
+
+        let addr_str = self.bind_addr.ip().to_string();
+        let port = self.bind_addr.port();
+
+        let cert = match &self.tls_mode {
+            TlsConfig::SelfSigned => self_signed_certs::server_cert(),
+            TlsConfig::Custom { .. } => {
+                // For now, custom certs use self-signed as fallback.
+                // Full custom cert support requires loading PEM files.
+                // TODO: load custom certs from cert_path/key_path
+                self_signed_certs::server_cert()
+            }
+        };
+
+        let inner = RealOffChainCoordinator::start_coord_from_cert(
+            &addr_str,
+            port,
+            prog_hash,
+            self.expected_parties as u64,
+            self.threshold as u64,
+            vec![], // no initial MPC nodes — they register dynamically
+            self.n_outputs,
+            cert,
+        )
+        .await;
+
+        Ok(StoffelCoordinator {
+            bind_addr: self.bind_addr,
+            inner,
+        })
+    }
+}
+
+impl Default for CoordinatorBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A running off-chain MPC coordinator that wraps the real
+/// `OffChainCoordinator` from `stoffel-mpc-coordinator`.
+///
+/// The coordinator provides a JSON-RPC server over TLS that MPC servers
+/// and clients connect to for round management, input masking, and
+/// output distribution.
+pub struct StoffelCoordinator {
+    bind_addr: SocketAddr,
+    inner: RealOffChainCoordinator,
+}
+
+impl StoffelCoordinator {
+    /// Create a new [`CoordinatorBuilder`].
+    pub fn builder() -> CoordinatorBuilder {
+        CoordinatorBuilder::new()
+    }
+
+    /// Build a coordinator from a [`CoordinatorConfig`].
+    ///
+    /// Reads configuration from a TOML file and starts the RPC server.
+    pub async fn from_config(path: &str) -> Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+
+        // Try parsing as a standalone coordinator config (with [coordinator] section)
+        #[derive(serde::Deserialize)]
+        struct CoordWrapper {
+            coordinator: CoordinatorConfig,
+        }
+
+        let config: CoordinatorConfig = if let Ok(wrapper) = toml::from_str::<CoordWrapper>(&content) {
+            wrapper.coordinator
+        } else {
+            toml::from_str(&content)
+                .map_err(|e| Error::Configuration(format!("TOML parse error: {e}")))?
+        };
+
+        // Apply PARTY_ID-style env overrides
+        let bind = if let Ok(val) = std::env::var("BIND_ADDRESS") {
+            val.parse().map_err(|e| {
+                Error::Configuration(format!("BIND_ADDRESS: invalid address: {}", e))
+            })?
+        } else {
+            config.bind_address
+        };
+
+        let n = config.expected_parties.unwrap_or(5);
+        let t = config.threshold.unwrap_or(1);
+
+        Self::builder()
+            .bind(&bind.to_string())
+            .expected_parties(n)
+            .threshold(t)
+            .n_outputs(config.n_outputs)
+            .tls(config.tls)
+            .build()
+            .await
+    }
+
+    /// Return the address the coordinator is listening on.
+    pub fn addr(&self) -> SocketAddr {
+        self.bind_addr
+    }
+
+    /// Return a reference to the underlying coordinator for direct RPC access.
+    pub fn inner(&self) -> &RealOffChainCoordinator {
+        &self.inner
+    }
+
+    /// Block until the process receives a shutdown signal (Ctrl+C).
+    ///
+    /// The RPC server is already running in a background task; this method
+    /// simply awaits `tokio::signal::ctrl_c()`.
+    pub async fn run_forever(self) -> Result<()> {
+        tokio::signal::ctrl_c()
+            .await
+            .map_err(|e| Error::Runtime(format!("signal handler error: {}", e)))?;
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OffChainCoordinator (in-memory test coordinator)
 // ---------------------------------------------------------------------------
 
 /// In-memory coordinator that tracks the round state machine locally.
