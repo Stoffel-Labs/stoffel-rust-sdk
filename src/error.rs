@@ -311,9 +311,56 @@ impl<T> ResultExt<T> for Option<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Display helpers (already derived via thiserror, but we add From impls
-// for ergonomic conversions from common external error types)
+// From<CoordinatorError> bridging
 // ---------------------------------------------------------------------------
+
+impl From<stoffel_mpc_coordinator::CoordinatorError> for Error {
+    fn from(e: stoffel_mpc_coordinator::CoordinatorError) -> Self {
+        use stoffel_mpc_coordinator::CoordinatorError;
+        match e {
+            CoordinatorError::ProgramTooLarge(size) => {
+                Error::InvalidInput(format!("program too large: {} bytes (max 10 MB)", size))
+            }
+            CoordinatorError::ProgramHashMismatch => {
+                Error::Computation("program hash mismatch between coordinator and client".into())
+            }
+            CoordinatorError::ProgramDistributionFailed(msg) => {
+                Error::Computation(format!("program distribution failed: {}", msg))
+            }
+            CoordinatorError::MaskReconstructionFailed(idx) => {
+                Error::Computation(format!("mask reconstruction failed for index {}", idx))
+            }
+            CoordinatorError::IndexAlreadyReserved(idx) => {
+                Error::InvalidInput(format!("mask index {} already reserved", idx))
+            }
+            CoordinatorError::MaskedInputAlreadySent(idx) => {
+                Error::InvalidInput(format!("masked input already sent for index {}", idx))
+            }
+            CoordinatorError::SerializationError | CoordinatorError::DeserializationError => {
+                Error::Computation(format!("coordinator serialization error: {:?}", e))
+            }
+            CoordinatorError::EncryptionError | CoordinatorError::DecryptionError => {
+                Error::Computation(format!("coordinator crypto error: {:?}", e))
+            }
+            CoordinatorError::EthereumError(msg) => {
+                Error::Computation(format!("ethereum error: {}", msg))
+            }
+            CoordinatorError::JSONError(msg) => {
+                Error::Computation(format!("coordinator JSON error: {}", msg))
+            }
+            CoordinatorError::SubscriptionError(msg) => {
+                Error::Network(NetworkError::Tls(format!("coordinator subscription error: {}", msg)))
+            }
+            _ => Error::Computation(format!("coordinator error: {:?}", e)),
+        }
+    }
+}
+
+impl From<stoffel_mpc_coordinator::NodeRPCError> for Error {
+    fn from(e: stoffel_mpc_coordinator::NodeRPCError) -> Self {
+        Error::Computation(format!("node RPC error: {:?}", e))
+    }
+}
 
 
 // ---------------------------------------------------------------------------

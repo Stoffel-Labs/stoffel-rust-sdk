@@ -44,6 +44,7 @@ use crate::error::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
 // Curve
@@ -503,6 +504,324 @@ where
 }
 
 // ---------------------------------------------------------------------------
+// TlsConfig
+// ---------------------------------------------------------------------------
+
+/// TLS configuration for MPC network participants.
+///
+/// Controls how TLS certificates are provisioned for coordinator, server,
+/// and client connections.
+///
+/// # TOML examples
+///
+/// ```toml
+/// # Self-signed (default, for development)
+/// [tls]
+/// mode = "self-signed"
+///
+/// # Custom certificates (production)
+/// [tls]
+/// mode = "custom"
+/// cert_path = "/path/to/cert.pem"
+/// key_path = "/path/to/key.pem"
+/// ```
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum TlsConfig {
+    /// Generate self-signed certificates at startup (development/testing).
+    #[serde(rename = "self-signed")]
+    SelfSigned,
+    /// Use custom PEM-encoded certificate and key files (production).
+    Custom {
+        /// Path to the PEM-encoded certificate file.
+        cert_path: PathBuf,
+        /// Path to the PEM-encoded private key file.
+        key_path: PathBuf,
+    },
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        TlsConfig::SelfSigned
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Coordinator Config (for deployment)
+// ---------------------------------------------------------------------------
+
+/// Default coordinator bind address.
+fn default_coordinator_bind() -> SocketAddr {
+    "0.0.0.0:31415".parse().unwrap()
+}
+
+/// Default number of outputs.
+fn default_n_outputs() -> u64 {
+    1
+}
+
+/// Configuration for an off-chain MPC coordinator.
+///
+/// Used by `StoffelCoordinator::from_config()` and in `stoffel-network.toml`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CoordinatorConfig {
+    /// Address to bind the coordinator RPC server.
+    #[serde(default = "default_coordinator_bind")]
+    pub bind_address: SocketAddr,
+
+    /// Number of MPC server parties expected. Inferred from `network.parties` if absent.
+    #[serde(default)]
+    pub expected_parties: Option<usize>,
+
+    /// Fault-tolerance threshold. Inferred from `network.threshold` if absent.
+    #[serde(default)]
+    pub threshold: Option<usize>,
+
+    /// Number of expected computation outputs.
+    #[serde(default = "default_n_outputs")]
+    pub n_outputs: u64,
+
+    /// TLS configuration.
+    #[serde(default)]
+    pub tls: TlsConfig,
+}
+
+impl Default for CoordinatorConfig {
+    fn default() -> Self {
+        Self {
+            bind_address: default_coordinator_bind(),
+            expected_parties: None,
+            threshold: None,
+            n_outputs: default_n_outputs(),
+            tls: TlsConfig::default(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Server Deployment Config
+// ---------------------------------------------------------------------------
+
+/// Configuration for an MPC server in a deployed network.
+///
+/// Used by `StoffelServer::from_config()` and in `stoffel-network.toml`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ServerDeployConfig {
+    /// This server's party ID. Can be overridden by `PARTY_ID` env var.
+    #[serde(default)]
+    pub party_id: Option<usize>,
+
+    /// Address to bind the server.
+    #[serde(default)]
+    pub bind_address: Option<SocketAddr>,
+
+    /// Coordinator address (host:port).
+    pub coordinator: String,
+
+    /// MPC backend protocol.
+    #[serde(default)]
+    pub backend: MpcBackendConfig,
+
+    /// Preprocessing material configuration.
+    #[serde(default)]
+    pub preprocessing: PreprocessingConfig,
+
+    /// TLS configuration.
+    #[serde(default)]
+    pub tls: TlsConfig,
+}
+
+// ---------------------------------------------------------------------------
+// Client Deployment Config
+// ---------------------------------------------------------------------------
+
+/// Configuration for an MPC client in a deployed network.
+///
+/// Used by `StoffelClient::from_config()` and in `stoffel-network.toml`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ClientDeployConfig {
+    /// Coordinator address (host:port).
+    pub coordinator: String,
+
+    /// Path to compiled program bytecode file.
+    #[serde(default)]
+    pub program: Option<PathBuf>,
+
+    /// TLS configuration.
+    #[serde(default)]
+    pub tls: TlsConfig,
+}
+
+// ---------------------------------------------------------------------------
+// NetworkDeployConfig (top-level stoffel-network.toml)
+// ---------------------------------------------------------------------------
+
+/// Network-level MPC parameters shared across all participants.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NetworkParams {
+    /// Total number of MPC server parties.
+    #[serde(default = "default_parties")]
+    pub parties: usize,
+
+    /// Fault-tolerance threshold.
+    #[serde(default = "default_threshold")]
+    pub threshold: usize,
+
+    /// MPC backend protocol.
+    #[serde(default)]
+    pub backend: MpcBackendConfig,
+
+    /// Path to compiled program bytecode.
+    #[serde(default)]
+    pub program: Option<PathBuf>,
+}
+
+impl Default for NetworkParams {
+    fn default() -> Self {
+        Self {
+            parties: default_parties(),
+            threshold: default_threshold(),
+            backend: MpcBackendConfig::default(),
+            program: None,
+        }
+    }
+}
+
+/// Top-level network deployment configuration (`stoffel-network.toml`).
+///
+/// Defines the full MPC network topology: coordinator, servers, and client.
+///
+/// # TOML example
+///
+/// ```toml
+/// [network]
+/// parties = 5
+/// threshold = 1
+/// backend = { protocol = "honeybadger" }
+/// program = "program.stfb"
+///
+/// [coordinator]
+/// bind_address = "0.0.0.0:31415"
+///
+/// [[server]]
+/// party_id = 0
+/// coordinator = "coordinator:31415"
+///
+/// [[server]]
+/// party_id = 1
+/// coordinator = "coordinator:31415"
+///
+/// [client]
+/// coordinator = "coordinator:31415"
+/// ```
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NetworkDeployConfig {
+    /// Network-level MPC parameters.
+    #[serde(default)]
+    pub network: NetworkParams,
+
+    /// Coordinator configuration.
+    #[serde(default)]
+    pub coordinator: CoordinatorConfig,
+
+    /// Server configurations (one per party, or a single template).
+    #[serde(default)]
+    pub server: Vec<ServerDeployConfig>,
+
+    /// Optional client configuration.
+    #[serde(default)]
+    pub client: Option<ClientDeployConfig>,
+}
+
+impl NetworkDeployConfig {
+    /// Load from a TOML file.
+    pub fn load(path: &str) -> Result<Self, Error> {
+        let content = std::fs::read_to_string(path)?;
+        let config: Self =
+            toml::from_str(&content).map_err(|e| Error::Configuration(format!("TOML parse error: {e}")))?;
+        Ok(config)
+    }
+
+    /// Load from a TOML file with environment variable overrides.
+    pub fn load_with_env(path: &str) -> Result<Self, Error> {
+        let mut config = Self::load(path)?;
+        config.apply_env_overrides()?;
+        Ok(config)
+    }
+
+    /// Apply environment variable overrides.
+    fn apply_env_overrides(&mut self) -> Result<(), Error> {
+        if let Ok(val) = std::env::var("STOFFEL_PARTIES") {
+            self.network.parties = parse_env("STOFFEL_PARTIES", &val)?;
+        }
+        if let Ok(val) = std::env::var("STOFFEL_THRESHOLD") {
+            self.network.threshold = parse_env("STOFFEL_THRESHOLD", &val)?;
+        }
+        if let Ok(val) = std::env::var("COORDINATOR_ADDR") {
+            // Update coordinator in all server configs
+            for server in &mut self.server {
+                server.coordinator = val.clone();
+            }
+            if let Some(client) = &mut self.client {
+                client.coordinator = val.clone();
+            }
+        }
+        if let Ok(val) = std::env::var("BIND_ADDRESS") {
+            self.coordinator.bind_address = val.parse().map_err(|e| {
+                Error::Configuration(format!("BIND_ADDRESS: invalid address '{}': {}", val, e))
+            })?;
+        }
+        if let Ok(val) = std::env::var("STOFFEL_PROGRAM") {
+            self.network.program = Some(PathBuf::from(val));
+        }
+        if let Ok(val) = std::env::var("STOFFEL_TLS_MODE") {
+            let tls = match val.to_lowercase().as_str() {
+                "self-signed" | "selfsigned" => TlsConfig::SelfSigned,
+                "custom" => {
+                    let cert = std::env::var("STOFFEL_TLS_CERT_PATH").map_err(|_| {
+                        Error::Configuration("STOFFEL_TLS_MODE=custom requires STOFFEL_TLS_CERT_PATH".into())
+                    })?;
+                    let key = std::env::var("STOFFEL_TLS_KEY_PATH").map_err(|_| {
+                        Error::Configuration("STOFFEL_TLS_MODE=custom requires STOFFEL_TLS_KEY_PATH".into())
+                    })?;
+                    TlsConfig::Custom {
+                        cert_path: PathBuf::from(cert),
+                        key_path: PathBuf::from(key),
+                    }
+                }
+                other => {
+                    return Err(Error::Configuration(format!(
+                        "STOFFEL_TLS_MODE: unknown mode '{}', expected 'self-signed' or 'custom'",
+                        other
+                    )));
+                }
+            };
+            self.coordinator.tls = tls.clone();
+            for server in &mut self.server {
+                server.tls = tls.clone();
+            }
+            if let Some(client) = &mut self.client {
+                client.tls = tls;
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate the entire network configuration.
+    pub fn validate(&self) -> Result<(), Error> {
+        validation::validate_mpc(self.network.parties, self.network.threshold)?;
+
+        let expected = self.coordinator.expected_parties.unwrap_or(self.network.parties);
+        if expected < 2 {
+            return Err(Error::Configuration(
+                "expected_parties must be >= 2".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -827,5 +1146,101 @@ expected_parties = 5
         assert!(result.is_err());
 
         std::env::remove_var("STOFFEL_PARTIES");
+    }
+
+    // -- TlsConfig tests --
+
+    #[test]
+    fn test_tls_config_default() {
+        assert!(matches!(TlsConfig::default(), TlsConfig::SelfSigned));
+    }
+
+    #[test]
+    fn test_tls_config_serde_self_signed() {
+        let toml_str = r#"mode = "self-signed""#;
+        let parsed: TlsConfig = toml::from_str(toml_str).unwrap();
+        assert!(matches!(parsed, TlsConfig::SelfSigned));
+    }
+
+    #[test]
+    fn test_tls_config_serde_custom() {
+        let toml_str = r#"
+mode = "custom"
+cert_path = "/certs/server.pem"
+key_path = "/certs/server.key"
+"#;
+        let parsed: TlsConfig = toml::from_str(toml_str).unwrap();
+        match parsed {
+            TlsConfig::Custom { cert_path, key_path } => {
+                assert_eq!(cert_path, PathBuf::from("/certs/server.pem"));
+                assert_eq!(key_path, PathBuf::from("/certs/server.key"));
+            }
+            _ => panic!("expected Custom"),
+        }
+    }
+
+    // -- CoordinatorConfig tests --
+
+    #[test]
+    fn test_coordinator_config_defaults() {
+        let config = CoordinatorConfig::default();
+        assert_eq!(config.bind_address, "0.0.0.0:31415".parse::<SocketAddr>().unwrap());
+        assert_eq!(config.n_outputs, 1);
+        assert!(config.expected_parties.is_none());
+        assert!(config.threshold.is_none());
+        assert!(matches!(config.tls, TlsConfig::SelfSigned));
+    }
+
+    // -- NetworkDeployConfig tests --
+
+    #[test]
+    fn test_network_deploy_config_parse() {
+        let toml_input = r#"
+[network]
+parties = 5
+threshold = 1
+
+[network.backend]
+protocol = "honeybadger"
+
+[coordinator]
+bind_address = "0.0.0.0:31415"
+n_outputs = 2
+
+[[server]]
+coordinator = "coordinator:31415"
+party_id = 0
+
+[[server]]
+coordinator = "coordinator:31415"
+party_id = 1
+
+[client]
+coordinator = "coordinator:31415"
+"#;
+        let config: NetworkDeployConfig = toml::from_str(toml_input).unwrap();
+        assert_eq!(config.network.parties, 5);
+        assert_eq!(config.network.threshold, 1);
+        assert_eq!(config.coordinator.n_outputs, 2);
+        assert_eq!(config.server.len(), 2);
+        assert_eq!(config.server[0].party_id, Some(0));
+        assert!(config.client.is_some());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_network_deploy_config_validate_fails() {
+        let config = NetworkDeployConfig {
+            network: NetworkParams {
+                parties: 3, // too few
+                threshold: 1,
+                backend: MpcBackendConfig::HoneyBadger,
+                program: None,
+            },
+            coordinator: CoordinatorConfig::default(),
+            server: vec![],
+            client: None,
+        };
+        assert!(config.validate().is_err());
     }
 }
