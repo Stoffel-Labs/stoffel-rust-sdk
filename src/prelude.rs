@@ -11,7 +11,7 @@
 //!     .threshold(1)
 //!     .build()?;
 //!
-//! let result = runtime.program().execute_local()?;
+//! let bytecode = runtime.program().bytecode();
 //! # Ok(())
 //! # }
 //! ```
@@ -34,5 +34,9 @@ pub use crate::types::{PartyId, ClientId, ComputationId};
 // Config types
 pub use crate::config::{MpcConfig, MpcBackendConfig, Curve, StoffelConfig};
 
-// Backend types
+// Backend types (protocol selection + real engines from StoffelVM)
 pub use crate::backend::MpcBackend;
+pub use crate::backend::{MpcEngine, MpcRunner};
+
+// Coordinator (Coordinator trait from stoffel-mpc-coordinator)
+pub use crate::coordinator::offchain::Coordinator;

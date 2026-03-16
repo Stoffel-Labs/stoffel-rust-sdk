@@ -17,44 +17,23 @@
 //!
 //! # Examples
 //!
-//! ## Local execution (testing)
+//! ## Access bytecode
 //!
 //! ```rust,no_run
 //! use stoffel_rust_sdk::Stoffel;
 //!
 //! # fn main() -> stoffel_rust_sdk::Result<()> {
-//! // Compile and build a runtime
 //! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
 //!     .build()?;
 //!
-//! // Get the underlying program
 //! let program = runtime.program();
-//!
-//! // Test locally
-//! let result = program.execute_local()?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## MPC infrastructure setup
-//!
-//! ```rust,no_run
-//! use stoffel_rust_sdk::Stoffel;
-//!
-//! # fn main() -> stoffel_rust_sdk::Result<()> {
-//! // Compile with MPC configuration
-//! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-//!     .parties(5)
-//!     .threshold(1)
-//!     .build()?;
-//!
-//! // Access the compiled program for local testing
-//! let result = runtime.program().execute_local()?;
+//! let bytecode = program.bytecode();
+//! let functions = program.list_functions()?;
 //! # Ok(())
 //! # }
 //! ```
 
-use crate::{vm, Error, Result};
+use crate::{Error, Result, vm};
 
 /// A compiled Stoffel program
 ///

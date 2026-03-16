@@ -34,8 +34,8 @@
 //!     .instance_id(42)
 //!     .build()?;
 //!
-//! // Test locally before deploying to MPC network
-//! let result = runtime.program().execute_local()?;
+//! // Access bytecode
+//! let bytecode = runtime.program().bytecode();
 //! # Ok(())
 //! # }
 //! ```
