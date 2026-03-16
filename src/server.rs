@@ -38,12 +38,16 @@
 
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::config::PreprocessingConfig;
+use crate::backend::MpcBackend;
+use crate::config::{MpcBackendConfig, PreprocessingConfig, ServerDeployConfig, TlsConfig};
 use crate::error::{Error, Result};
 use crate::program::Program;
 use crate::types::PartyId;
+
+use stoffel_vm::net::mpc_runner::MpcRunner;
 
 // ---------------------------------------------------------------------------
 // ServerState
@@ -142,6 +146,9 @@ pub struct ServerBuilder {
     expected_clients: Option<usize>,
     preprocessing: PreprocessingConfig,
     consensus_timeout: Duration,
+    coordinator_addr: Option<String>,
+    tls_mode: TlsConfig,
+    backend: MpcBackend,
 }
 
 impl ServerBuilder {
@@ -156,6 +163,9 @@ impl ServerBuilder {
             expected_clients: None,
             preprocessing: PreprocessingConfig::default(),
             consensus_timeout: Duration::from_secs(30),
+            coordinator_addr: None,
+            tls_mode: TlsConfig::SelfSigned,
+            backend: MpcBackend::HoneyBadger,
         }
     }
 
@@ -219,8 +229,19 @@ impl ServerBuilder {
     /// When set, the server registers with the coordinator on startup
     /// and receives the program from it rather than loading locally.
     pub fn coordinator(mut self, addr: &str) -> Self {
-        // Store in peers for now; will be used during start()
-        self.peers.push((crate::types::PartyId(usize::MAX), addr.to_string()));
+        self.coordinator_addr = Some(addr.to_string());
+        self
+    }
+
+    /// Set the TLS mode for this server.
+    pub fn tls(mut self, tls: TlsConfig) -> Self {
+        self.tls_mode = tls;
+        self
+    }
+
+    /// Set the MPC backend protocol.
+    pub fn backend(mut self, backend: MpcBackend) -> Self {
+        self.backend = backend;
         self
     }
 
@@ -256,7 +277,10 @@ impl ServerBuilder {
             preprocessing: self.preprocessing,
             consensus_timeout: self.consensus_timeout,
             expected_clients: self.expected_clients,
-            coordinator_addr: None,
+            coordinator_addr: self.coordinator_addr,
+            tls_mode: self.tls_mode,
+            backend: self.backend,
+            mpc_runner: None,
             connected_peers: AtomicUsize::new(0),
             connected_clients: AtomicUsize::new(0),
             computations_completed: AtomicUsize::new(0),
@@ -296,8 +320,14 @@ pub struct StoffelServer {
     consensus_timeout: Duration,
     expected_clients: Option<usize>,
     /// Coordinator address for the coordinator-centric flow (RFC-012).
-    /// Server registers with coordinator and receives program from it.
     coordinator_addr: Option<String>,
+    /// TLS configuration.
+    tls_mode: TlsConfig,
+    /// MPC backend protocol.
+    backend: MpcBackend,
+    /// MPC runner wrapping the VM and MPC engine.
+    /// Set by `StoffelNetwork::execute_local()` after session discovery.
+    mpc_runner: Option<MpcRunner>,
     // Metrics (atomic for concurrent access)
     connected_peers: AtomicUsize,
     connected_clients: AtomicUsize,
@@ -319,6 +349,58 @@ impl StoffelServer {
     /// ```
     pub fn builder(party_id: usize) -> ServerBuilder {
         ServerBuilder::new(party_id)
+    }
+
+    /// Build a server from a TOML config file.
+    ///
+    /// The party ID can be set in the config or via the `PARTY_ID` env var.
+    pub fn from_config(path: &str) -> Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+
+        #[derive(serde::Deserialize)]
+        struct ServerWrapper {
+            server: ServerDeployConfig,
+        }
+
+        let config: ServerDeployConfig = if let Ok(wrapper) = toml::from_str::<ServerWrapper>(&content) {
+            wrapper.server
+        } else {
+            toml::from_str(&content)
+                .map_err(|e| Error::Configuration(format!("TOML parse error: {e}")))?
+        };
+
+        // PARTY_ID env var override
+        let party_id = if let Ok(val) = std::env::var("PARTY_ID") {
+            val.parse::<usize>().map_err(|e| {
+                Error::Configuration(format!("PARTY_ID: invalid value: {}", e))
+            })?
+        } else {
+            config.party_id.unwrap_or(0)
+        };
+
+        // COORDINATOR_ADDR env var override
+        let coordinator = if let Ok(val) = std::env::var("COORDINATOR_ADDR") {
+            val
+        } else {
+            config.coordinator
+        };
+
+        let backend = match config.backend {
+            MpcBackendConfig::HoneyBadger => MpcBackend::HoneyBadger,
+            MpcBackendConfig::Avss { curve } => MpcBackend::Avss { curve },
+        };
+
+        let mut builder = Self::builder(party_id)
+            .coordinator(&coordinator)
+            .tls(config.tls)
+            .backend(backend)
+            .with_preprocessing(config.preprocessing.triples, config.preprocessing.random_shares);
+
+        if let Some(addr) = config.bind_address {
+            builder = builder.bind(addr);
+        }
+
+        builder.build()
     }
 
     /// Return the current lifecycle state.
@@ -355,11 +437,26 @@ impl StoffelServer {
 
         self.state = ServerState::Starting;
 
-        // TODO: bind listener, connect to peers via QUIC
+        // Validate configuration
+        if let Some(ref coord_addr) = self.coordinator_addr {
+            let _: SocketAddr = coord_addr.parse().map_err(|e| {
+                Error::Configuration(format!("invalid coordinator address '{}': {}", coord_addr, e))
+            })?;
+        }
+
+        // In standalone mode, the server would create QUIC networking,
+        // register with coordinator/bootnode, and preprocess.
+        // In StoffelNetwork::execute_local(), the network orchestrator
+        // handles session discovery, peer mesh, and engine setup.
+        //
+        // The actual networking flow (from stoffel-run.rs):
+        //   1. QuicNetworkManager::with_node_id(party_id).listen(bind_addr)
+        //   2. register_and_wait_for_session_with_program(net, bootnode, ...)
+        //   3. setup_hb_party_for_curve(vm, net, party_id, n, t, ...)
+        //   4. engine.preprocess()
 
         self.state = ServerState::Preprocessing;
-
-        // TODO: generate Beaver triples and random shares
+        // Preprocessing material is generated when the MPC engine is attached.
 
         self.state = ServerState::Ready;
         Ok(())

@@ -30,8 +30,10 @@
 //! # }
 //! ```
 
+use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::config::{ClientDeployConfig, TlsConfig};
 use crate::error::{Error, Result, RetryConfig};
 use crate::types::{ClientId, ComputationId, Value};
 
@@ -85,6 +87,10 @@ pub struct ClientBuilder {
     client_id: Option<ClientId>,
     timeout: Duration,
     retry_config: RetryConfig,
+    coordinator_addr: Option<String>,
+    tls_mode: TlsConfig,
+    program_bytecode: Option<Vec<u8>>,
+    program_path: Option<PathBuf>,
 }
 
 impl ClientBuilder {
@@ -101,6 +107,10 @@ impl ClientBuilder {
             client_id: None,
             timeout: Duration::from_secs(30),
             retry_config: RetryConfig::default(),
+            coordinator_addr: None,
+            tls_mode: TlsConfig::SelfSigned,
+            program_bytecode: None,
+            program_path: None,
         }
     }
 
@@ -146,7 +156,26 @@ impl ClientBuilder {
     /// When set, the client submits inputs to the coordinator rather than
     /// directly to individual servers.
     pub fn coordinator(mut self, addr: &str) -> Self {
+        self.coordinator_addr = Some(addr.to_string());
         self.servers.push(addr.to_string()); // coordinator acts as entry point
+        self
+    }
+
+    /// Set the TLS mode for this client.
+    pub fn tls(mut self, tls: TlsConfig) -> Self {
+        self.tls_mode = tls;
+        self
+    }
+
+    /// Set the program bytecode to submit to the coordinator.
+    pub fn with_program(mut self, bytecode: Vec<u8>) -> Self {
+        self.program_bytecode = Some(bytecode);
+        self
+    }
+
+    /// Set the path to the program bytecode file.
+    pub fn with_program_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.program_path = Some(path.into());
         self
     }
 
@@ -158,20 +187,37 @@ impl ClientBuilder {
     /// Returns [`Error::Computation`] as a placeholder until real networking
     /// is implemented.
     pub async fn connect(self) -> Result<StoffelClient> {
-        if self.servers.is_empty() {
+        if self.servers.is_empty() && self.coordinator_addr.is_none() {
             return Err(Error::Configuration(
-                "at least one server address is required".into(),
+                "at least one server or coordinator address is required".into(),
             ));
         }
 
         let client_id = self.client_id.unwrap_or(ClientId(0));
 
-        // TODO: establish real connection to coordinator
+        // Load program from file if path specified but no bytecode
+        let program_bytecode = if self.program_bytecode.is_some() {
+            self.program_bytecode
+        } else if let Some(ref path) = self.program_path {
+            Some(std::fs::read(path)?)
+        } else {
+            None
+        };
+
+        // In the full flow, we would:
+        // 1. Resolve TLS identity (self-signed or custom certs)
+        // 2. Connect to coordinator RPC via start_rpc_client()
+        // 3. Submit program if provided via coordinator.submit_program()
+        // 4. Create NodeRPCClient connections for mask shares
+        // This is orchestrated by StoffelNetwork::execute_local()
+
         Ok(StoffelClient {
             client_id,
             state: ClientState::Ready,
             servers: self.servers,
-            coordinator_addr: None,
+            coordinator_addr: self.coordinator_addr,
+            tls_mode: self.tls_mode,
+            program_bytecode,
         })
     }
 }
@@ -204,14 +250,58 @@ pub struct StoffelClient {
     state: ClientState,
     servers: Vec<String>,
     /// Reference to the coordinator for program submission and I/O.
-    /// When set, the client uses the coordinator-centric flow (RFC-012).
     coordinator_addr: Option<String>,
+    /// TLS configuration.
+    tls_mode: TlsConfig,
+    /// Program bytecode to submit to coordinator.
+    program_bytecode: Option<Vec<u8>>,
 }
 
 impl StoffelClient {
     /// Create a new [`ClientBuilder`].
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
+    }
+
+    /// Build a client from a TOML config file.
+    pub async fn from_config(path: &str) -> Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+
+        #[derive(serde::Deserialize)]
+        struct ClientWrapper {
+            client: ClientDeployConfig,
+        }
+
+        let config: ClientDeployConfig = if let Ok(wrapper) = toml::from_str::<ClientWrapper>(&content) {
+            wrapper.client
+        } else {
+            toml::from_str(&content)
+                .map_err(|e| Error::Configuration(format!("TOML parse error: {e}")))?
+        };
+
+        // COORDINATOR_ADDR env var override
+        let coordinator = if let Ok(val) = std::env::var("COORDINATOR_ADDR") {
+            val
+        } else {
+            config.coordinator
+        };
+
+        let mut builder = Self::builder()
+            .coordinator(&coordinator)
+            .tls(config.tls);
+
+        // STOFFEL_PROGRAM env var override
+        let program_path = if let Ok(val) = std::env::var("STOFFEL_PROGRAM") {
+            Some(PathBuf::from(val))
+        } else {
+            config.program
+        };
+
+        if let Some(path) = program_path {
+            builder = builder.with_program_file(path);
+        }
+
+        builder.connect().await
     }
 
     /// Return the current connection state.
