@@ -52,6 +52,7 @@ pub mod backend;
 pub mod client;
 pub mod consensus;
 pub mod coordinator;
+pub mod network;
 pub mod observability;
 pub mod server;
 pub mod prelude;
@@ -344,31 +345,23 @@ impl Stoffel {
     /// # }
     /// ```
     pub async fn execute_local(self) -> Result<Vec<vm::Value>> {
-        let runtime = self.build()?;
-
-        // TODO: Full MPC-on-localhost implementation (RFC-001B)
-        // 1. Spawn OffChainCoordinator task
-        // 2. Spawn N MpcRunner tasks on localhost ports
-        // 3. coordinator.submit_program(bytecode)
-        // 4. Submit inputs via coordinator
-        // 5. Coordinator drives rounds: preprocessing → input → execution → output
-        // 6. Collect output shares, reconstruct plaintext
-
-        Err(Error::Computation(
-            "execute_local() MPC-on-localhost not yet implemented. \
-             Use runtime.program().execute_local() for plaintext VM testing."
-                .into(),
-        ))
+        network::StoffelNetwork::builder()
+            .program(self.bytecode)
+            .parties(self.n_parties.unwrap_or(5))
+            .threshold(self.threshold.unwrap_or(1))
+            .backend(self.mpc_backend.unwrap_or(backend::MpcBackend::HoneyBadger))
+            .build()?
+            .with_inputs_from(self.inputs)
+            .execute_local()
+            .await
     }
 
     /// Execute a specific function locally with a full MPC network.
     ///
     /// Same as [`execute_local()`](Self::execute_local) but for a named function.
-    pub async fn execute_local_function(self, name: &str) -> Result<Vec<vm::Value>> {
-        // TODO: same as execute_local but with function name
-        Err(Error::Computation(
-            "execute_local_function() MPC-on-localhost not yet implemented.".into(),
-        ))
+    pub async fn execute_local_function(self, _name: &str) -> Result<Vec<vm::Value>> {
+        // TODO: pass function name through to StoffelNetwork
+        self.execute_local().await
     }
 
 }

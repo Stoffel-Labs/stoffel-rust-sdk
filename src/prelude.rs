@@ -40,3 +40,7 @@ pub use crate::backend::{MpcEngine, MpcRunner};
 
 // Coordinator (Coordinator trait from stoffel-mpc-coordinator)
 pub use crate::coordinator::offchain::Coordinator;
+
+// Network orchestration
+pub use crate::network::StoffelNetwork;
+pub use crate::coordinator::offchain::StoffelCoordinator;
