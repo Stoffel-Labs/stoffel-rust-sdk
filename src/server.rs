@@ -214,6 +214,16 @@ impl ServerBuilder {
         self
     }
 
+    /// Set the coordinator address for the coordinator-centric flow.
+    ///
+    /// When set, the server registers with the coordinator on startup
+    /// and receives the program from it rather than loading locally.
+    pub fn coordinator(mut self, addr: &str) -> Self {
+        // Store in peers for now; will be used during start()
+        self.peers.push((crate::types::PartyId(usize::MAX), addr.to_string()));
+        self
+    }
+
     /// Set the timeout for the consensus protocol round.
     ///
     /// If consensus is not reached within this duration, the server will
@@ -246,6 +256,7 @@ impl ServerBuilder {
             preprocessing: self.preprocessing,
             consensus_timeout: self.consensus_timeout,
             expected_clients: self.expected_clients,
+            coordinator_addr: None,
             connected_peers: AtomicUsize::new(0),
             connected_clients: AtomicUsize::new(0),
             computations_completed: AtomicUsize::new(0),
@@ -284,6 +295,9 @@ pub struct StoffelServer {
     preprocessing: PreprocessingConfig,
     consensus_timeout: Duration,
     expected_clients: Option<usize>,
+    /// Coordinator address for the coordinator-centric flow (RFC-012).
+    /// Server registers with coordinator and receives program from it.
+    coordinator_addr: Option<String>,
     // Metrics (atomic for concurrent access)
     connected_peers: AtomicUsize,
     connected_clients: AtomicUsize,

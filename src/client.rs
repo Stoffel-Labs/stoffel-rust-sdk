@@ -141,6 +141,15 @@ impl ClientBuilder {
         self
     }
 
+    /// Set the coordinator address for the coordinator-centric flow.
+    ///
+    /// When set, the client submits inputs to the coordinator rather than
+    /// directly to individual servers.
+    pub fn coordinator(mut self, addr: &str) -> Self {
+        self.servers.push(addr.to_string()); // coordinator acts as entry point
+        self
+    }
+
     /// Validate the builder configuration and connect to the MPC network.
     ///
     /// # Errors
@@ -157,11 +166,12 @@ impl ClientBuilder {
 
         let client_id = self.client_id.unwrap_or(ClientId(0));
 
-        // TODO: establish real QUIC connections here
+        // TODO: establish real connection to coordinator
         Ok(StoffelClient {
             client_id,
             state: ClientState::Ready,
             servers: self.servers,
+            coordinator_addr: None,
         })
     }
 }
@@ -193,6 +203,9 @@ pub struct StoffelClient {
     client_id: ClientId,
     state: ClientState,
     servers: Vec<String>,
+    /// Reference to the coordinator for program submission and I/O.
+    /// When set, the client uses the coordinator-centric flow (RFC-012).
+    coordinator_addr: Option<String>,
 }
 
 impl StoffelClient {
