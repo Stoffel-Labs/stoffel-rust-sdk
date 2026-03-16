@@ -319,7 +319,6 @@ impl Stoffel {
     /// **WARNING:** This is for development and testing only. All parties share
     /// a process address space, violating MPC party isolation. For production,
     /// use separate processes via the Stoffel CLI (`stoffel deploy`).
-    /// See HackMD note `_6iDFAwMSOm-QDua12Wleg` for security analysis.
     ///
     /// # Flow
     ///

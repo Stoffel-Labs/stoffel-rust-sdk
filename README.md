@@ -228,7 +228,7 @@ Keep PRs focused on a single change.
 
 If you discover a security vulnerability, **do not open a public issue**. Email [security@stoffel.ai](mailto:security@stoffel.ai) instead.
 
-`execute_local()` runs all MPC parties in one process — this violates party isolation and is for development only. See the [security analysis](https://hackmd.io/@stoffel-labs/_6iDFAwMSOm-QDua12Wleg) for details.
+`execute_local()` runs all MPC parties in one process — this violates party isolation and is for development only.
 
 ## License
 
