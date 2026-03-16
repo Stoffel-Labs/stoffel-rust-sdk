@@ -108,12 +108,7 @@ git submodule update --init --recursive
 - **Application-Specific SDKs**: Support building specialized SDKs on top of the core functionality
 - **Rust-Native**: Idiomatic Rust patterns and best practices
 
-### API Architecture: Progressive Disclosure
-
-The SDK follows a **three-level architecture** to balance simplicity and power:
-
-#### Level 1: Simple API (`src/prelude.rs`)
-**For most users - building MPC applications easily**
+### API Architecture
 
 ```rust
 use stoffel_rust_sdk::prelude::*;
@@ -122,84 +117,53 @@ use stoffel_rust_sdk::prelude::*;
 let runtime = Stoffel::compile(source)?
     .parties(5)
     .threshold(1)
+    .backend(MpcBackend::HoneyBadger)
     .build()?;
 
-// Create participants
-let client = runtime.client(100).with_inputs(vec![10, 20]).build()?;
-let server = runtime.server(0).build()?;
+// Query MPC config
+let mpc = runtime.mpc_config().unwrap();
+
+// Test locally
+let result = runtime.program().execute_local()?;
 ```
 
-**Re-exports:**
-- `Stoffel`, `StoffelRuntime` - Main API
-- `MPCClient`, `MPCServer`, `MPCNode` - Participants
-- `Program`, `VM`, `Compiler` - Core types
+**Prelude re-exports:**
+- `Stoffel`, `StoffelRuntime` - Main entry point and runtime
+- `Program`, `VM`, `Compiler` - Compilation and execution
+- `MpcConfig`, `MpcBackendConfig`, `Curve`, `StoffelConfig` - Configuration
+- `MpcBackend` - Backend protocol selection
+- `PartyId`, `ClientId`, `ComputationId` - Shared types
 - `Error`, `Result` - Error handling
-
-**Example:** `examples/simple_mpc.rs`
-
-#### Level 2: Advanced Abstractions (`src/advanced.rs`)
-**For custom MPC applications requiring fine-grained control**
-
-```rust
-use stoffel_rust_sdk::advanced::*;
-
-// Store and manage secret shares
-ShareManager::store_shares(100, &[10, 20], 5, 1)?;
-
-// Build network configuration
-let config = NetworkBuilder::new(5, 1)
-    .base_port(19200)
-    .instance_id(42)
-    .build();
-```
-
-**Provides:**
-- `ShareManager` - Clean abstraction over ClientInputStore
-- `NetworkBuilder` - Clean abstraction for network configuration
-- `NetworkConfig` - Configuration validation
-
-**IMPORTANT:** No raw internal types exposed. All advanced functionality uses proper abstractions.
-
-**Example:** `examples/advanced_shares.rs`
-
-#### Level 3: Production Infrastructure (`src/network_helpers.rs`)
-**For production deployments with real networking** (requires `mpc-local` feature)
-
-```rust
-use stoffel_rust_sdk::prelude::*;
-
-// One-call network setup
-let (servers, receivers) = setup_honeybadger_quic_network::<Fr>(
-    5, 1, 3, 8, 42, 19200,
-    HoneyBadgerQuicConfig::default(),
-).await?;
-```
-
-**Provides:**
-- `setup_honeybadger_quic_network()` - Complete network in one call
-- `HoneyBadgerQuicServer`, `HoneyBadgerQuicClient` - Production wrappers
-- QUIC listeners, connections, message handlers
-
-**Example:** `examples/quick_start_local_network_real.rs`
 
 ### Module Structure
 
 ```
 src/
 ├── lib.rs              # Stoffel builder - main entry point
-├── prelude.rs          # ⭐ Simple API (Level 1)
-├── advanced.rs         # ⭐⭐ Advanced abstractions (Level 2)
-├── network_helpers.rs  # ⭐⭐⭐ Production infrastructure (Level 3)
-│
-├── program.rs          # Compiled program with MPC config
+├── prelude.rs          # Convenient re-exports
+├── error.rs            # Error types (Error, NetworkError, ConsensusError)
+├── types.rs            # Shared types (PartyId, ClientId, ComputationId)
+├── config/             # Configuration system (RFC-008)
+│   ├── mod.rs          # MpcConfig, NetworkConfig, StoffelConfig
+│   └── validation.rs   # Parameter validation
 ├── compiler.rs         # Stoffel-Lang compiler wrapper
 ├── vm.rs               # StoffelVM execution wrapper
-├── client.rs           # MPCClient implementation
-├── server.rs           # MPCServer implementation
-├── session.rs          # MPCNode implementation
-├── network_config.rs   # Network configuration types
-├── secret_sharing.rs   # Secret sharing utilities
-└── error.rs            # Unified error types
+├── program.rs          # Compiled bytecode container
+├── runtime.rs          # StoffelRuntime (Program + MpcConfig)
+├── backend/            # MPC backend engines (RFC-004, RFC-005)
+│   ├── mod.rs          # MpcBackend enum, MpcEngine traits
+│   ├── honeybadger.rs  # HoneyBadger engine
+│   └── avss.rs         # AVSS engine
+├── client.rs           # MPC client (input provider)
+├── server.rs           # MPC server (compute node)
+├── consensus.rs        # Consensus primitives
+├── coordinator/        # Round coordination
+│   ├── mod.rs          # Round state machine
+│   ├── offchain.rs     # Off-chain coordinator
+│   └── onchain.rs      # On-chain coordinator (placeholder)
+└── observability/      # Metrics and telemetry
+    ├── mod.rs          # Counter, Gauge, Histogram, ServerMetrics
+    └── otel.rs         # OpenTelemetry config
 ```
 
 ### MPC Architecture
@@ -230,12 +194,11 @@ The SDK implements an **MPC as a Service** architecture using the **HoneyBadger 
    - Cannot learn individual client inputs
    - Byzantine fault-tolerant
 
-3. **MPCNode** (`src/session.rs`)
+3. **MPCNode**
    - For full participants in collaborative MPC scenarios
    - Combines client and server functionality
    - Provides inputs AND participates in computation
    - Also uses HoneyBadger protocol
-   - Should be used explicitly when this behavior is needed
 
 #### Design Rationale
 

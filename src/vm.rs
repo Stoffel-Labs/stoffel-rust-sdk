@@ -53,7 +53,7 @@ pub(crate) fn load_bytecode_into_vm(vm: &mut VirtualMachine, bytecode: &[u8]) ->
     // Deserialize bytecode into CompiledBinary
     let mut cursor = Cursor::new(bytecode);
     let compiled_binary = CompiledBinary::deserialize(&mut cursor)
-        .map_err(|e| Error::RuntimeError(format!("Failed to deserialize bytecode: {:?}", e)))?;
+        .map_err(|e| Error::Runtime(format!("Failed to deserialize bytecode: {:?}", e)))?;
 
     // Convert to VM functions and register them
     let vm_functions = compiled_binary.to_vm_functions();
@@ -90,7 +90,7 @@ impl VM {
     /// Load bytecode from a file
     pub fn load_bytecode(&self, path: &str) -> Result<LoadedProgram> {
         let bytecode = std::fs::read(path)
-            .map_err(|e| Error::IoError(e))?;
+            .map_err(Error::Io)?;
         Ok(LoadedProgram {
             bytecode,
             debug: self.debug,
@@ -107,8 +107,8 @@ impl VM {
 
         // Execute the entry function
         vm.execute(entry_function)
-            .map(|v| convert_vm_value_to_sdk_value(v))
-            .map_err(|e| Error::RuntimeError(format!("Execution failed: {}", e)))
+            .map(convert_vm_value_to_sdk_value)
+            .map_err(|e| Error::Runtime(format!("Execution failed: {}", e)))
     }
 
     /// Register a custom Rust function for FFI
@@ -118,7 +118,7 @@ impl VM {
     {
         // TODO: Wrap the SDK function and register with VM's FFI
         // This requires converting between SDK Values and VM Values
-        Err(Error::RuntimeError(
+        Err(Error::Runtime(
             "FFI registration not yet fully implemented".to_string(),
         ))
     }
@@ -160,7 +160,7 @@ impl LoadedProgram {
 
         let mut cursor = Cursor::new(&self.bytecode);
         let compiled_binary = CompiledBinary::deserialize(&mut cursor)
-            .map_err(|e| Error::RuntimeError(format!("Failed to deserialize bytecode: {:?}", e)))?;
+            .map_err(|e| Error::Runtime(format!("Failed to deserialize bytecode: {:?}", e)))?;
 
         // Convert to VM functions
         let vm_functions = compiled_binary.to_vm_functions();
@@ -181,8 +181,8 @@ impl LoadedProgram {
 
         // Execute with args
         vm.execute_with_args(function_name, &vm_args)
-            .map(|v| convert_vm_value_to_sdk_value(v))
-            .map_err(|e| Error::RuntimeError(format!("Execution failed: {}", e)))
+            .map(convert_vm_value_to_sdk_value)
+            .map_err(|e| Error::Runtime(format!("Execution failed: {}", e)))
     }
 
     /// List all functions in the loaded program
@@ -193,7 +193,7 @@ impl LoadedProgram {
 
         let mut cursor = Cursor::new(&self.bytecode);
         let compiled_binary = CompiledBinary::deserialize(&mut cursor)
-            .map_err(|e| Error::RuntimeError(format!("Failed to deserialize bytecode: {:?}", e)))?;
+            .map_err(|e| Error::Runtime(format!("Failed to deserialize bytecode: {:?}", e)))?;
 
         // Extract function info
         let functions = compiled_binary.functions
@@ -282,9 +282,8 @@ fn convert_vm_value_to_sdk_value(vm_value: stoffel_vm_types::core_types::Value) 
     match vm_value {
         VMValue::I64(i) => Value::Int(i),
         VMValue::Float(f) => {
-            // Float in runner branch is stored as i64 fixed-point
-            // Convert back to f64 (this is a simplified conversion)
-            Value::Float(f as f64 / 1000.0)
+            // F64 implements From<F64> for f64
+            Value::Float(f64::from(f))
         },
         VMValue::Bool(b) => Value::Bool(b),
         VMValue::String(s) => Value::String(s),
@@ -302,8 +301,8 @@ fn convert_sdk_value_to_vm_value(sdk_value: Value) -> stoffel_vm_types::core_typ
     match sdk_value {
         Value::Int(i) => VMValue::I64(i),
         Value::Float(f) => {
-            // Convert f64 to fixed-point i64 representation
-            VMValue::Float((f * 1000.0) as i64)
+            // F64 implements From<f64> for F64
+            VMValue::Float(stoffel_vm_types::core_types::F64::from(f))
         },
         Value::Bool(b) => VMValue::Bool(b),
         Value::String(s) => VMValue::String(s),
