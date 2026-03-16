@@ -49,7 +49,6 @@ use crate::{client, config, program, server, types};
 /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
 ///     .parties(5)
 ///     .threshold(1)
-///     .instance_id(42)
 ///     .build()?;
 ///
 /// // Inspect config
@@ -99,13 +98,10 @@ impl StoffelRuntime {
     /// Create a client builder pre-configured with this runtime's MPC config.
     ///
     /// The client will interact with the coordinator to submit inputs and
-    /// receive computation outputs.
+    /// receive computation outputs. The coordinator assigns the client ID
+    /// during connection.
     pub fn client(&self) -> client::ClientBuilder {
-        let mut builder = client::ClientBuilder::new();
-        if let Some(ref mpc) = self.mpc_config {
-            builder = builder.client_id(types::ClientId(mpc.instance_id));
-        }
-        builder
+        client::ClientBuilder::new()
     }
 
     /// Create a server builder pre-configured with this runtime's MPC config.

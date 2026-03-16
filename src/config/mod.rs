@@ -138,12 +138,6 @@ fn default_threshold() -> usize {
     1
 }
 
-/// Generates a random instance ID using the `rand` crate.
-fn generate_instance_id() -> u64 {
-    use rand::Rng;
-    rand::thread_rng().gen()
-}
-
 /// MPC computation configuration.
 ///
 /// Controls the number of parties, fault-tolerance threshold, instance
@@ -155,7 +149,6 @@ fn generate_instance_id() -> u64 {
 /// |---------------|---------------|
 /// | `parties`     | 5             |
 /// | `threshold`   | 1             |
-/// | `instance_id` | random `u64`  |
 /// | `backend`     | HoneyBadger   |
 ///
 /// # Validation
@@ -174,11 +167,6 @@ pub struct MpcConfig {
     #[serde(default = "default_threshold")]
     pub threshold: usize,
 
-    /// Unique identifier for this MPC computation instance.
-    /// Defaults to a random value.
-    #[serde(default = "generate_instance_id")]
-    pub instance_id: u64,
-
     /// MPC backend protocol configuration.
     #[serde(default)]
     pub backend: MpcBackendConfig,
@@ -189,7 +177,6 @@ impl Default for MpcConfig {
         Self {
             parties: default_parties(),
             threshold: default_threshold(),
-            instance_id: generate_instance_id(),
             backend: MpcBackendConfig::default(),
         }
     }
@@ -378,7 +365,6 @@ impl StoffelConfig {
     /// |-------------------------|-------------------------------|
     /// | `STOFFEL_PARTIES`       | `mpc.parties`                 |
     /// | `STOFFEL_THRESHOLD`     | `mpc.threshold`               |
-    /// | `STOFFEL_INSTANCE_ID`   | `mpc.instance_id`             |
     /// | `STOFFEL_BACKEND`       | `mpc.backend` protocol tag    |
     /// | `STOFFEL_CURVE`         | `mpc.backend.curve` (AVSS)    |
     /// | `STOFFEL_PARTY_ID`      | `network.party_id`            |
@@ -409,9 +395,6 @@ impl StoffelConfig {
         }
         if let Ok(val) = std::env::var("STOFFEL_THRESHOLD") {
             self.mpc.threshold = parse_env("STOFFEL_THRESHOLD", &val)?;
-        }
-        if let Ok(val) = std::env::var("STOFFEL_INSTANCE_ID") {
-            self.mpc.instance_id = parse_env("STOFFEL_INSTANCE_ID", &val)?;
         }
         if let Ok(val) = std::env::var("STOFFEL_BACKEND") {
             self.mpc.backend = match val.to_lowercase().as_str() {
@@ -533,8 +516,6 @@ mod tests {
         assert_eq!(config.parties, 5);
         assert_eq!(config.threshold, 1);
         assert_eq!(config.backend, MpcBackendConfig::HoneyBadger);
-        // instance_id is random, just check it exists
-        let _ = config.instance_id;
     }
 
     #[test]
@@ -542,7 +523,6 @@ mod tests {
         let config = MpcConfig {
             parties: 5,
             threshold: 1,
-            instance_id: 42,
             backend: MpcBackendConfig::HoneyBadger,
         };
         assert!(config.validate().is_ok());
@@ -553,7 +533,6 @@ mod tests {
         let config = MpcConfig {
             parties: 3,
             threshold: 1,
-            instance_id: 0,
             backend: MpcBackendConfig::HoneyBadger,
         };
         assert!(config.validate().is_err());
@@ -564,7 +543,6 @@ mod tests {
         let config = MpcConfig {
             parties: 5,
             threshold: 2,
-            instance_id: 0,
             backend: MpcBackendConfig::HoneyBadger,
         };
         assert!(config.validate().is_err());
@@ -659,7 +637,6 @@ mod tests {
 [mpc]
 parties = 7
 threshold = 2
-instance_id = 12345
 
 [mpc.backend]
 protocol = "honeybadger"
@@ -684,7 +661,6 @@ generate_on_startup = false
         let config: StoffelConfig = toml::from_str(toml_input).unwrap();
         assert_eq!(config.mpc.parties, 7);
         assert_eq!(config.mpc.threshold, 2);
-        assert_eq!(config.mpc.instance_id, 12345);
         assert_eq!(config.mpc.backend, MpcBackendConfig::HoneyBadger);
         assert_eq!(config.network.party_id, 0);
         assert_eq!(config.network.expected_parties, 7);
@@ -748,7 +724,6 @@ expected_parties = 5
             mpc: MpcConfig {
                 parties: 5,
                 threshold: 1,
-                instance_id: 1,
                 backend: MpcBackendConfig::HoneyBadger,
             },
             network: NetworkConfig {

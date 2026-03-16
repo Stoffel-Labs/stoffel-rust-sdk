@@ -31,7 +31,6 @@
 //! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
 //!     .parties(5)
 //!     .threshold(1)
-//!     .instance_id(42)
 //!     .build()?;
 //!
 //! // Access bytecode
@@ -83,7 +82,6 @@ pub use error::{Error, Result};
 /// |--------|---------|-------------|
 /// | `.parties(n)` | 5 | Number of MPC parties |
 /// | `.threshold(t)` | 1 | Byzantine fault tolerance |
-/// | `.instance_id(id)` | random u64 | Computation identifier |
 /// | `.with_inputs(inputs)` | none | Named inputs for computation |
 /// | `.backend(backend)` | HoneyBadger | MPC backend protocol |
 /// | `.config_file(path)` | none | Load MPC config from TOML file |
@@ -106,7 +104,6 @@ pub use error::{Error, Result};
 /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
 ///     .parties(5)
 ///     .threshold(1)
-///     .instance_id(42)
 ///     .build()?;
 ///
 /// // Access compiled program
@@ -118,7 +115,6 @@ pub struct Stoffel {
     bytecode: Vec<u8>,
     n_parties: Option<usize>,
     threshold: Option<usize>,
-    instance_id: Option<u64>,
     mpc_backend: Option<backend::MpcBackend>,
     inputs: Vec<(String, types::Value)>,
 }
@@ -192,7 +188,6 @@ impl Stoffel {
             bytecode,
             n_parties: None,
             threshold: None,
-            instance_id: None,
             mpc_backend: None,
             inputs: Vec::new(),
         }
@@ -218,15 +213,6 @@ impl Stoffel {
         self
     }
 
-    /// Set the computation instance ID.
-    ///
-    /// Each independent computation should use a unique instance ID.
-    /// Default: random `u64`.
-    pub fn instance_id(mut self, id: u64) -> Self {
-        self.instance_id = Some(id);
-        self
-    }
-
     /// Provide named inputs for the computation.
     ///
     /// Inputs are passed to the MPC network via the coordinator during
@@ -249,7 +235,7 @@ impl Stoffel {
 
     /// Load MPC configuration from a TOML file.
     ///
-    /// MPC parameters (parties, threshold, instance_id, backend) are extracted
+    /// MPC parameters (parties, threshold, backend) are extracted
     /// from the config if not already set explicitly.
     pub fn config_file(mut self, path: impl AsRef<std::path::Path>) -> Result<Self> {
         let stoffel_config = config::StoffelConfig::load(
@@ -261,9 +247,6 @@ impl Stoffel {
         }
         if self.threshold.is_none() {
             self.threshold = Some(stoffel_config.mpc.threshold);
-        }
-        if self.instance_id.is_none() {
-            self.instance_id = Some(stoffel_config.mpc.instance_id);
         }
         if self.mpc_backend.is_none() {
             self.mpc_backend = Some(match stoffel_config.mpc.backend {
@@ -302,15 +285,9 @@ impl Stoffel {
         let mpc_config = if let Some(n) = self.n_parties {
             let t = self.threshold.unwrap_or(1);
 
-            let instance_id = self.instance_id.unwrap_or_else(|| {
-                use rand::Rng;
-                rand::thread_rng().gen()
-            });
-
             let mpc = config::MpcConfig {
                 parties: n,
                 threshold: t,
-                instance_id,
                 backend: match self.mpc_backend {
                     Some(backend::MpcBackend::HoneyBadger) | None => {
                         config::MpcBackendConfig::HoneyBadger
