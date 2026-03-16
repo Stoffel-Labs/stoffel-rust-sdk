@@ -15,17 +15,17 @@
 //!     .threshold(1)
 //!     .build()?;
 //!
-//! // Access the compiled program
-//! let result = runtime.program().execute_local()?;
-//!
 //! // Query MPC configuration
 //! let mpc = runtime.mpc_config().unwrap();
 //! assert_eq!(mpc.parties, 5);
+//!
+//! // Access the compiled program bytecode
+//! let bytecode = runtime.program().bytecode();
 //! # Ok(())
 //! # }
 //! ```
 
-use crate::{client, config, program, server, types, vm};
+use crate::{client, config, program, server, types};
 
 /// A compiled Stoffel program paired with MPC infrastructure configuration.
 ///
@@ -36,9 +36,9 @@ use crate::{client, config, program, server, types, vm};
 /// - Optional [`MpcConfig`](crate::config::MpcConfig) for MPC operations
 ///
 /// From a runtime you can:
-/// - Execute programs locally for testing via [`program()`](Self::program)
 /// - Query MPC configuration via [`mpc_config()`](Self::mpc_config)
-/// - (Future) Create MPC participants via `client()`, `server()`, `node()`
+/// - Create MPC participants via [`client()`](Self::client), [`server()`](Self::server)
+/// - Access compiled bytecode via [`program()`](Self::program)
 ///
 /// # Example
 ///
@@ -51,9 +51,6 @@ use crate::{client, config, program, server, types, vm};
 ///     .threshold(1)
 ///     .instance_id(42)
 ///     .build()?;
-///
-/// // Test locally
-/// let result = runtime.program().execute_local()?;
 ///
 /// // Inspect config
 /// let mpc = runtime.mpc_config().unwrap();
@@ -79,7 +76,7 @@ impl StoffelRuntime {
     /// # fn main() -> Result<()> {
     /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
     ///     .build()?;
-    /// let result = runtime.program().execute_local()?;
+    /// let bytecode = runtime.program().bytecode();
     /// # Ok(())
     /// # }
     /// ```
@@ -127,17 +124,4 @@ impl StoffelRuntime {
         builder
     }
 
-    /// Execute the program locally on the VM (convenience method).
-    ///
-    /// Equivalent to `runtime.program().execute_local()`.
-    pub fn execute_local(&self) -> crate::Result<vm::Value> {
-        self.program.execute_local()
-    }
-
-    /// Execute a specific function locally on the VM.
-    ///
-    /// Equivalent to `runtime.program().execute_local_function(name)`.
-    pub fn execute_local_function(&self, name: &str) -> crate::Result<vm::Value> {
-        self.program.execute_local_function(name)
-    }
 }

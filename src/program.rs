@@ -91,39 +91,6 @@ impl Program {
         std::fs::write(path, &self.bytecode).map_err(|e| Error::Io(e))
     }
 
-    /// Execute the program locally on the VM for testing
-    ///
-    /// This runs the "main" function locally without MPC. Useful for testing
-    /// program logic before setting up MPC infrastructure.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use stoffel_rust_sdk::Stoffel;
-    /// # fn main() -> stoffel_rust_sdk::Result<()> {
-    /// let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-    ///     .build()?;
-    /// let program = runtime.program();
-    /// let result = program.execute_local()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn execute_local(&self) -> Result<vm::Value> {
-        self.execute_local_function("main")
-    }
-
-    /// Execute a specific function locally on the VM
-    pub fn execute_local_function(&self, function_name: &str) -> Result<vm::Value> {
-        let vm = vm::VM::new();
-        vm.run_bytecode(&self.bytecode, function_name)
-    }
-
-    /// Execute a function locally with arguments
-    pub fn execute_local_with_args(&self, function_name: &str, args: Vec<vm::Value>) -> Result<vm::Value> {
-        let loaded = vm::LoadedProgram::from_bytecode(self.bytecode.clone());
-        loaded.execute_with_args(function_name, args)
-    }
-
     /// List all functions in this program
     pub fn list_functions(&self) -> Result<Vec<vm::FunctionInfo>> {
         let loaded = vm::LoadedProgram::from_bytecode(self.bytecode.clone());
