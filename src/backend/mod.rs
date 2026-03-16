@@ -1,32 +1,26 @@
-//! MPC Backend trait and implementations (RFC-004, RFC-005).
+//! MPC Backend selection and engine re-exports (RFC-004, RFC-005).
 //!
-//! This module provides the [`MpcBackend`] enum for protocol selection,
-//! the [`MpcEngine`] and [`MpcEngineAsync`] traits that all backend
-//! implementations must satisfy, and concrete implementations for
-//! HoneyBadger ([`honeybadger::HoneyBadgerEngine`]) and AVSS
-//! ([`avss::AvssEngine`]).
+//! This module provides:
+//! - [`MpcBackend`] enum for protocol selection (HoneyBadger or AVSS)
+//! - Re-exported [`MpcEngine`] trait from StoffelVM for engine operations
+//! - Re-exported concrete engines: [`HoneyBadgerMpcEngine`] and [`AvssMpcEngine`]
+//! - SDK-level share types ([`ShareType`], [`RobustShare`], [`FeldmanShare`])
 //!
 //! # Architecture
 //!
-//! ```text
-//! MpcEngine (sync operations: add, sub, scalar_mul, input, random)
-//!     |
-//!     v
-//! MpcEngineAsync (async operations: open, multiply -- require network)
-//!     |
-//!     +-- HoneyBadgerEngine  (RFC-004)
-//!     +-- AvssEngine          (RFC-005)
-//! ```
+//! The real engine trait and implementations live in StoffelVM's `net` module.
+//! The SDK re-exports them and provides the `MpcBackend` enum as the
+//! user-facing protocol selector.
 //!
-//! All engine implementations are currently stubs that establish the correct
-//! type signatures and trait structure. Real protocol logic will be wired in
-//! once the networking and preprocessing layers are integrated.
+//! ```text
+//! MpcEngine (from StoffelVM — sync + async operations)
+//!     |
+//!     +-- HoneyBadgerMpcEngine  (from StoffelVM, RFC-004)
+//!     +-- AvssMpcEngine          (from StoffelVM, RFC-005)
+//! ```
 
 pub mod avss;
 pub mod honeybadger;
-
-use std::future::Future;
-use std::pin::Pin;
 
 // ---------------------------------------------------------------------------
 // Re-exports from canonical locations
@@ -152,95 +146,28 @@ impl FeldmanCommitment {
 /// Opaque handle to a share held inside an MPC engine.
 ///
 /// Handles are lightweight identifiers that refer to shares stored in the
-/// engine's internal state. They are produced by [`MpcEngine::input_share`]
-/// and consumed by arithmetic operations and [`MpcEngineAsync::open_share`].
+/// engine's internal state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ShareHandle(pub u64);
 
 // ---------------------------------------------------------------------------
-// MpcEngine trait (synchronous)
+// Re-exports from StoffelVM (real engine trait and implementations)
 // ---------------------------------------------------------------------------
 
-/// Trait for synchronous MPC protocol engine operations.
+/// The real MPC engine trait from StoffelVM.
 ///
-/// Implementors provide local arithmetic on secret shares. These operations
-/// do not require network communication and can be performed immediately.
-///
-/// See also [`MpcEngineAsync`] for operations that require communication.
-pub trait MpcEngine: Send + Sync {
-    /// Import an external share into the engine, returning a handle.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the share format is incompatible with this engine.
-    fn input_share(&self, share: ShareType) -> crate::Result<ShareHandle>;
+/// Provides sync operations (input, add, sub, scalar_mul, random, open, multiply)
+/// and async operations for network communication.
+pub use stoffel_vm::net::mpc_engine::MpcEngine;
 
-    /// Compute the sum of two secret-shared values.
-    ///
-    /// This is a local operation (no communication required).
-    fn add_share(&self, a: ShareHandle, b: ShareHandle) -> ShareHandle;
+/// MPC engine with consensus support.
+pub use stoffel_vm::net::mpc_engine::MpcEngineConsensus;
 
-    /// Compute the difference of two secret-shared values.
-    ///
-    /// This is a local operation (no communication required).
-    fn sub_share(&self, a: ShareHandle, b: ShareHandle) -> ShareHandle;
+/// MPC engine with client input hydration support.
+pub use stoffel_vm::net::mpc_engine::MpcEngineClientOps;
 
-    /// Multiply a secret-shared value by a public scalar.
-    ///
-    /// The `scalar` is a serialized field element. This is a local operation.
-    fn scalar_mul(&self, share: ShareHandle, scalar: Vec<u8>) -> ShareHandle;
-
-    /// Generate a fresh random secret share.
-    ///
-    /// Consumes one preprocessed random share from the engine's pool.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no random shares are available.
-    fn random_share(&self) -> crate::Result<ShareHandle>;
-}
-
-/// Trait for asynchronous MPC engine operations that require network
-/// communication.
-///
-/// These operations involve inter-party communication (e.g., opening a
-/// share requires collecting partial openings from all parties, and
-/// multiplication requires a Beaver-triple-based protocol round).
-///
-/// # Note on async
-///
-/// Since `async_trait` is not available in this crate, methods return
-/// boxed futures. A future version may switch to native `async fn in trait`
-/// once stabilized.
-pub trait MpcEngineAsync: MpcEngine {
-    /// Open (reconstruct) a secret-shared value, revealing the plaintext.
-    ///
-    /// All parties must participate in this operation. Returns the serialized
-    /// field element.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if reconstruction fails (e.g., insufficient shares
-    /// or network timeout).
-    fn open_share(
-        &self,
-        handle: ShareHandle,
-    ) -> Pin<Box<dyn Future<Output = crate::Result<Vec<u8>>> + Send + '_>>;
-
-    /// Multiply two secret-shared values using a Beaver triple.
-    ///
-    /// Requires one round of communication to execute the multiplication
-    /// sub-protocol. Consumes one preprocessed Beaver triple.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no triples are available or communication fails.
-    fn multiply_share(
-        &self,
-        a: ShareHandle,
-        b: ShareHandle,
-    ) -> Pin<Box<dyn Future<Output = crate::Result<ShareHandle>> + Send + '_>>;
-}
+/// The MPC runner that wraps a VM + engine for execution.
+pub use stoffel_vm::net::mpc_runner::{MpcRunner, MpcRunnerConfig};
 
 // ---------------------------------------------------------------------------
 // Tests
