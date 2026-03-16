@@ -1,0 +1,29 @@
+# Private salary calculation.
+# The salary is secret — no party learns it.
+# Business rules (years, rating thresholds) are public.
+# Only the final compensation is revealed.
+
+def apply_bonus(base: secret int64, qualifies: int64, bonus: int64) -> secret int64:
+  # qualifies is 0 or 1 (public). Multiplying a secret by a public value is free.
+  return base + bonus * qualifies
+
+main main() -> nil:
+  var salary: secret int64 = 5000
+
+  # Public criteria — safe to branch on
+  var years: int64 = 8
+  var rating: int64 = 4
+
+  var senior: int64 = 0
+  if years >= 5:
+    senior = 1
+  salary = apply_bonus(salary, senior, 1000)
+
+  var top_performer: int64 = 0
+  if rating >= 4:
+    top_performer = 1
+  salary = apply_bonus(salary, top_performer, 500)
+
+  # Reveal only the final number
+  var total_comp: int64 = salary
+  discard total_comp

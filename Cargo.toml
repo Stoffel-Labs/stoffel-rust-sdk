@@ -48,4 +48,22 @@ tokio = { version = "1.0", features = ["full"] }
 [features]
 default = []
 
+[[example]]
+name = "hello_stoffel"
+path = "examples/hello_stoffel.rs"
 
+[[example]]
+name = "secret_arithmetic"
+path = "examples/secret_arithmetic.rs"
+
+[[example]]
+name = "network_builder"
+path = "examples/network_builder.rs"
+
+[[example]]
+name = "deploy_scaffold"
+path = "examples/deploy_scaffold.rs"
+
+[[example]]
+name = "generate_stfb"
+path = "examples/generate_stfb.rs"

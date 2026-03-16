@@ -1,0 +1,19 @@
+# Private voting: each client submits a secret vote (1 = yes, 0 = no).
+# The MPC network tallies votes without any party learning individual choices.
+# Clients submit their votes via the coordinator's input masking protocol.
+
+main main() -> nil:
+  # Each client submits one secret share (their vote)
+  var n_voters: int64 = ClientStore.get_number_clients()
+
+  # Collect votes from the first 3 clients
+  secret var vote_0 = ClientStore.take_share(0, 0)
+  secret var vote_1 = ClientStore.take_share(1, 0)
+  secret var vote_2 = ClientStore.take_share(2, 0)
+
+  # Tally — addition on secrets is free (local operation)
+  var tally: secret int64 = vote_0 + vote_1 + vote_2
+
+  # Reveal only the aggregate count
+  var result: int64 = tally
+  discard result

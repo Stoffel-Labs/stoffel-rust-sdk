@@ -1,0 +1,16 @@
+# Your first MPC program.
+# Two secret inputs are added — no party ever sees them individually.
+# Only the final sum is revealed.
+
+def add_secrets(a: secret int64, b: secret int64) -> secret int64:
+  return a + b
+
+main main() -> nil:
+  var x: secret int64 = 42
+  var y: secret int64 = 58
+
+  var sum: secret int64 = add_secrets(x, y)
+
+  # Reveal: assigning a secret to a clear variable opens it
+  var result: int64 = sum
+  discard result
