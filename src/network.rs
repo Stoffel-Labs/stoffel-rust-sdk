@@ -56,6 +56,11 @@
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use ark_bls12_381::Fr;
+use ark_serialize::CanonicalSerialize;
+use ark_std::rand::SeedableRng;
 
 use crate::backend::MpcBackend;
 use crate::config::{
@@ -220,6 +225,7 @@ impl NetworkBuilder {
             bytecode,
             config,
             inputs: Vec::new(),
+            client_inputs: Vec::new(),
         })
     }
 }
@@ -243,6 +249,7 @@ pub struct StoffelNetwork {
     bytecode: Vec<u8>,
     config: NetworkDeployConfig,
     inputs: Vec<(String, Value)>,
+    client_inputs: Vec<(u64, Vec<i64>)>,
 }
 
 impl StoffelNetwork {
@@ -268,6 +275,7 @@ impl StoffelNetwork {
             bytecode,
             config,
             inputs: Vec::new(),
+            client_inputs: Vec::new(),
         })
     }
 
@@ -286,6 +294,17 @@ impl StoffelNetwork {
         self
     }
 
+    /// Provide client inputs for local execution.
+    ///
+    /// Each tuple is `(client_id, list_of_integer_values)`.
+    /// During [`execute_local()`](Self::execute_local), these are secret-shared
+    /// and injected into each party's VM `ClientInputStore`, enabling programs
+    /// that use `ClientStore.take_share()`.
+    pub fn with_client_inputs(mut self, inputs: Vec<(u64, Vec<i64>)>) -> Self {
+        self.client_inputs = inputs;
+        self
+    }
+
     /// Return a reference to the network configuration.
     pub fn config(&self) -> &NetworkDeployConfig {
         &self.config
@@ -298,75 +317,312 @@ impl StoffelNetwork {
 
     /// Execute the computation locally with a full MPC network on localhost.
     ///
-    /// Composes all actors as Tokio tasks:
-    /// 1. Start off-chain coordinator on localhost (OS-assigned port)
-    /// 2. Spawn N MPC server tasks (each connects via bootnode discovery)
-    /// 3. Run client protocol (submit program + inputs, get results)
-    /// 4. Collect results, abort all tasks
+    /// Spins up a real HoneyBadger MPC network with N parties communicating
+    /// over QUIC on localhost ports. Each party runs preprocessing, loads the
+    /// program bytecode, and executes it with full secret-sharing semantics.
+    ///
+    /// 1. Install TLS crypto provider
+    /// 2. Create N `HoneyBadgerQuicServer` instances in a mesh topology
+    /// 3. Start servers and connect peers
+    /// 4. Create `MpcRunner` per party (wraps VM + MPC engine)
+    /// 5. Run HoneyBadger preprocessing via the engine
+    /// 6. Load bytecode and inject client inputs (if any)
+    /// 7. Execute `main` on all parties in parallel
+    /// 8. Return party 0's result
     ///
     /// **WARNING:** This is for development and testing only. All parties share
     /// a process address space, violating MPC party isolation.
     pub async fn execute_local(self) -> Result<Vec<VmValue>> {
-        use crate::coordinator::offchain::{self_signed_certs, StoffelCoordinator};
+        use std::sync::Once;
+        use std::time::Duration;
+
+        use tokio::sync::mpsc;
+
+        use stoffel_vm::net::{
+            honeybadger_node_opts,
+            HoneyBadgerQuicConfig, HoneyBadgerQuicServer, MpcRunner,
+        };
+        use stoffelmpc_mpc::common::SecretSharingScheme;
+        use stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare;
 
         let n = self.config.network.parties;
         let t = self.config.network.threshold;
         let bytecode = self.bytecode.clone();
-        let prog_hash = stoffel_mpc_coordinator::compute_prog_hash(&bytecode);
+
+        // Extract preprocessing parameters from server config
+        let (n_triples, n_random_shares) = self
+            .config
+            .server
+            .first()
+            .map(|s| (s.preprocessing.triples, s.preprocessing.random_shares))
+            .unwrap_or((1000, 500));
 
         tracing::info!(
             parties = n,
             threshold = t,
+            triples = n_triples,
+            random_shares = n_random_shares,
             bytecode_len = bytecode.len(),
-            "Starting local MPC network"
+            "Starting local MPC network with full HoneyBadger protocol"
         );
 
-        // 1. Start coordinator on localhost with OS-assigned port
-        let coordinator = StoffelCoordinator::builder()
-            .bind("127.0.0.1:0")
-            .expected_parties(n)
-            .threshold(t)
-            .n_outputs(1)
-            .program(bytecode.clone())
-            .build()
-            .await?;
-
-        let coord_addr = coordinator.addr();
-        tracing::info!(%coord_addr, "Coordinator started");
-
-        // 2. Start the bootnode for peer discovery
-        let bootnode_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-        let bootnode_handle = tokio::spawn(async move {
-            let _ = stoffel_vm::net::discovery::run_bootnode_with_config(
-                bootnode_addr,
-                Some(n),
-            )
-            .await;
+        // Step 1: Install rustls crypto provider (idempotent)
+        static INIT_CRYPTO: Once = Once::new();
+        INIT_CRYPTO.call_once(|| {
+            if rustls::crypto::CryptoProvider::get_default().is_none() {
+                let _ = rustls::crypto::ring::default_provider().install_default();
+            }
         });
 
-        // 3. For each party, we need to:
-        //    a. Create QuicNetworkManager
-        //    b. Register with bootnode
-        //    c. Set up HoneyBadger engine
-        //    d. Run preprocessing
-        //
-        // This requires using stoffel-vm's internal APIs directly since
-        // they manage their own version of stoffelnet.
-        //
-        // For now, we use the VM's execute_local as the simplest path
-        // that runs the full MPC protocol.
+        // Step 2: Derive instance_id from bytecode hash and pick base port
+        let instance_id = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            bytecode.hash(&mut hasher);
+            hasher.finish()
+        };
+        let base_port: u16 = 19200 + (instance_id % 10000) as u16;
 
-        // Execute the program using the VM.
-        // For now, this runs the program locally without full MPC (plaintext VM).
-        // Full MPC-on-localhost requires wiring the coordinator + server + client
-        // round protocol with matching stoffelnet versions.
-        let loaded = vm::LoadedProgram::from_bytecode(bytecode);
-        let result = loaded.execute("main")?;
+        let quic_config = HoneyBadgerQuicConfig {
+            mpc_timeout: Duration::from_secs(120),
+            connection_retry_delay: Duration::from_millis(100),
+            ..Default::default()
+        };
 
-        // Abort background tasks
-        bootnode_handle.abort();
+        // Determine client IDs for input injection
+        let client_ids: Vec<usize> = if !self.client_inputs.is_empty() {
+            self.client_inputs.iter().map(|(id, _)| *id as usize).collect()
+        } else if !self.inputs.is_empty() {
+            (0..self.inputs.len()).collect()
+        } else {
+            vec![]
+        };
 
-        Ok(vec![result])
+        // Step 3: Create MPC options and server addresses
+        let mpc_opts = honeybadger_node_opts(n, t, n_triples, n_random_shares, instance_id);
+
+        let addresses: Vec<SocketAddr> = (0..n)
+            .map(|i| {
+                format!("127.0.0.1:{}", base_port + i as u16)
+                    .parse()
+                    .expect("valid localhost address")
+            })
+            .collect();
+
+        // Step 4: Create all HoneyBadger QUIC servers
+        tracing::info!("Creating {} HoneyBadger QUIC servers", n);
+        let mut servers: Vec<HoneyBadgerQuicServer<Fr>> = Vec::with_capacity(n);
+
+        for i in 0..n {
+            let (tx, _rx) = mpsc::channel(1500);
+            let mut server = HoneyBadgerQuicServer::new(
+                i,
+                addresses[i],
+                mpc_opts.clone(),
+                quic_config.clone(),
+                tx,
+                client_ids.clone(),
+            )
+            .await
+            .map_err(|e| Error::Runtime(format!(
+                "Failed to create server {i} at {}: {e:?}", addresses[i]
+            )))?;
+
+            // Add all other servers as peers
+            for j in 0..n {
+                if i != j {
+                    server.add_peer(j, addresses[j]).await;
+                }
+            }
+
+            servers.push(server);
+        }
+
+        // Step 5: Start servers and connect peers
+        tracing::info!("Starting servers and connecting peers");
+        for (i, server) in servers.iter_mut().enumerate() {
+            server.start().await.map_err(|e| {
+                Error::Runtime(format!("Server {i} failed to start: {e:?}"))
+            })?;
+        }
+
+        for server in &servers {
+            server.connect_to_peers().await.map_err(|e| {
+                Error::Runtime(format!("Peer connection failed: {e:?}"))
+            })?;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        // Step 6: Create MpcRunner per party (wraps VM + MPC engine)
+        // MpcRunner::from_node() creates an HoneyBadgerMpcEngine from the
+        // server's node and attaches it to a fresh VirtualMachine.
+        tracing::info!("Creating MPC runners");
+        let mut runners: Vec<MpcRunner> = Vec::with_capacity(n);
+        for (i, server) in servers.iter().enumerate() {
+            let network = server.network.clone().ok_or_else(|| {
+                Error::Runtime(format!("Server {i} network not set after start"))
+            })?;
+            let node = server.node.clone();
+
+            let runner = MpcRunner::from_node(instance_id, i, n, t, network, node);
+
+            // Load bytecode into the runner's VM
+            {
+                let vm_lock = runner.vm();
+                let mut vm = vm_lock.lock();
+                vm::load_bytecode_into_vm(&mut vm, &bytecode)?;
+            }
+
+            runners.push(runner);
+        }
+
+        // Step 7: Run preprocessing on all parties in parallel via the engine
+        tracing::info!("Running HoneyBadger preprocessing");
+        let preprocessing_handles: Vec<_> = runners
+            .iter()
+            .enumerate()
+            .map(|(i, runner)| {
+                let engine = runner.mpc_engine().clone();
+                tokio::spawn(async move {
+                    engine
+                        .preprocess()
+                        .await
+                        .map_err(|e| format!("Party {i} preprocessing failed: {e}"))
+                })
+            })
+            .collect();
+
+        let preprocessing_results = futures::future::join_all(preprocessing_handles).await;
+        for result in preprocessing_results {
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => return Err(Error::Preprocessing(e)),
+                Err(e) => return Err(Error::Preprocessing(format!("Task panicked: {e}"))),
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        tracing::info!("Preprocessing complete");
+
+        // Step 8: Inject client inputs
+        let has_client_inputs = !self.client_inputs.is_empty();
+        let has_named_inputs = !self.inputs.is_empty();
+
+        if has_client_inputs {
+            tracing::info!(
+                clients = self.client_inputs.len(),
+                "Injecting client inputs via secret sharing"
+            );
+            let mut rng = ark_std::rand::rngs::StdRng::from_entropy();
+
+            for (client_id, values) in &self.client_inputs {
+                for (input_idx, val) in values.iter().enumerate() {
+                    let secret = Fr::from(*val as u64);
+                    let shares: Vec<_> = RobustShare::compute_shares(secret, n, t, None, &mut rng)
+                        .map_err(|e| Error::Computation(format!(
+                            "Failed to compute shares for client {client_id} input {input_idx}: {e:?}"
+                        )))?;
+
+                    for (party_id, runner) in runners.iter().enumerate() {
+                        let mut bytes = Vec::new();
+                        shares[party_id]
+                            .serialize_compressed(&mut bytes)
+                            .map_err(|e| Error::Computation(format!(
+                                "Share serialization failed: {e}"
+                            )))?;
+
+                        let vm_lock = runner.vm();
+                        let vm = vm_lock.lock();
+                        let store = vm.state.client_store();
+                        store.store_client_input_bytes(*client_id as usize, vec![bytes]);
+                    }
+                }
+            }
+        } else if has_named_inputs {
+            tracing::info!(
+                inputs = self.inputs.len(),
+                "Injecting named inputs as client inputs via secret sharing"
+            );
+            let mut rng = ark_std::rand::rngs::StdRng::from_entropy();
+
+            for (client_idx, (_name, value)) in self.inputs.iter().enumerate() {
+                let secret = match value {
+                    Value::Int64(v) => Fr::from(*v as u64),
+                    _ => continue,
+                };
+                let shares: Vec<_> = RobustShare::compute_shares(secret, n, t, None, &mut rng)
+                    .map_err(|e| Error::Computation(format!(
+                        "Failed to compute shares for input {client_idx}: {e:?}"
+                    )))?;
+
+                for (party_id, runner) in runners.iter().enumerate() {
+                    let mut bytes = Vec::new();
+                    shares[party_id]
+                        .serialize_compressed(&mut bytes)
+                        .map_err(|e| Error::Computation(format!(
+                            "Share serialization failed: {e}"
+                        )))?;
+
+                    let vm_lock = runner.vm();
+                    let vm = vm_lock.lock();
+                    let store = vm.state.client_store();
+                    store.store_client_input_bytes(client_idx, vec![bytes]);
+                }
+            }
+        }
+
+        // Step 9: Execute main on all parties in parallel via MpcRunner
+        // MpcRunner::execute_function uses parking_lot::Mutex internally which
+        // makes its future non-Send. We use LocalSet to run these non-Send
+        // futures concurrently on the current thread.
+        tracing::info!("Executing program on {} parties", n);
+
+        let local_set = tokio::task::LocalSet::new();
+        let execution_timeout = Duration::from_secs(120);
+
+        let runners: Vec<Arc<MpcRunner>> = runners.into_iter().map(Arc::new).collect();
+
+        let result = local_set.run_until(async {
+            let execution_handles: Vec<_> = runners
+                .iter()
+                .enumerate()
+                .map(|(i, runner)| {
+                    let runner = Arc::clone(runner);
+                    tokio::task::spawn_local(async move {
+                        runner
+                            .execute_function("main")
+                            .await
+                            .map_err(|e| format!("Party {i} execution failed: {e}"))
+                    })
+                })
+                .collect();
+
+            tokio::time::timeout(
+                execution_timeout,
+                futures::future::join_all(execution_handles),
+            )
+            .await
+        }).await
+        .map_err(|_| Error::Computation(format!(
+            "MPC execution timed out after {execution_timeout:?}"
+        )))?;
+
+        // Take party 0's result
+        let party0_result = result
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::Computation("No party results".into()))?
+            .map_err(|e| Error::Computation(format!("Party 0 task panicked: {e}")))?
+            .map_err(|e| Error::Computation(e))?;
+
+        let sdk_value = vm::convert_vm_value_to_sdk_value(party0_result.value);
+
+        // Step 10: Clean up - stop servers
+        for mut server in servers {
+            server.stop().await;
+        }
+
+        tracing::info!("Local MPC execution complete");
+        Ok(vec![sdk_value])
     }
 
     /// Generate deployment artifacts for the MPC network.

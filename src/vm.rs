@@ -276,7 +276,7 @@ impl Value {
 }
 
 /// Convert StoffelVM Value to SDK Value
-fn convert_vm_value_to_sdk_value(vm_value: stoffel_vm_types::core_types::Value) -> Value {
+pub(crate) fn convert_vm_value_to_sdk_value(vm_value: stoffel_vm_types::core_types::Value) -> Value {
     use stoffel_vm_types::core_types::Value as VMValue;
 
     match vm_value {
