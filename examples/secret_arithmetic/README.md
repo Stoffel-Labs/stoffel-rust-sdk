@@ -7,6 +7,7 @@ Compile a program with secret multiplication and explore different MPC configura
 - **MPC configuration validation** — the SDK enforces `n >= 3t + 1` at build time
 - **Multiple configurations** — 5/1 (standard), 7/2 (higher tolerance), 3/1 (rejected)
 - **Bytecode determinism** — source-compiled and pre-compiled bytecode are identical
+- **Full MPC execution** — multiplication triggers the real Beaver triple protocol across all 5 parties
 
 ## Key Concepts
 

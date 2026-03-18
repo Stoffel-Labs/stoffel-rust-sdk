@@ -4,9 +4,10 @@ Compile a voting program and scaffold production deployment artifacts — Docker
 
 ## What This Shows
 
+- **Client input injection** via `with_client_inputs()` — secret-share and inject votes into each party's VM
+- **Full MPC execution** of the voting protocol with injected client inputs on localhost
 - **`StoffelNetwork::scaffold()`** generates a complete deployment directory
 - **Generated artifacts**: `docker-compose.yml`, Dockerfiles, TOML configs, Rust source for coordinator/server/client
-- **Production deployment** workflow from source to running containers
 
 ## Key Concepts
 

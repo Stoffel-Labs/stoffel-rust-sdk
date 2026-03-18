@@ -8,6 +8,7 @@ Compile a StoffelLang program that adds two secret integers, inspect the compile
 - **`runtime.program().list_functions()`** inspects what functions are in the program
 - **`Stoffel::load(bytecode)`** loads pre-compiled `.stfb` bytecode
 - **`runtime.mpc_config()`** queries the MPC party/threshold configuration
+- **`execute_local().await`** runs the full HoneyBadger MPC protocol on localhost with 5 parties
 
 ## Key Concepts
 

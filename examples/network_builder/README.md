@@ -7,7 +7,7 @@ Use `StoffelNetwork::builder()` for fine-grained control over the MPC network. R
 - **`Compiler::new().compile_source()`** for explicit compilation control
 - **`StoffelNetwork::builder()`** with custom preprocessing settings
 - **Loading from `.stfb`** pre-compiled bytecode into a network
-- **`network.with_inputs()`** for named computation inputs
+- **End-to-end MPC execution** via `StoffelNetwork::execute_local()` with custom preprocessing
 
 ## Key Concepts
 
