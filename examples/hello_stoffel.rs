@@ -1,13 +1,14 @@
 //! Example 1: Your First Secret Computation
 //!
-//! Compile a StoffelLang program, inspect it, and load pre-compiled bytecode.
-//! Shows the full compile-inspect-configure workflow.
+//! Compile a StoffelLang program, inspect it, load pre-compiled bytecode,
+//! and run the full MPC protocol on localhost.
 //!
 //! Run: cargo run --example hello_stoffel
 
 use stoffel_rust_sdk::prelude::*;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let source = include_str!("hello_stoffel/hello.stfl");
 
     // --- Compile from source and inspect ---
@@ -46,8 +47,15 @@ fn main() -> Result<()> {
     println!("Saved to {}", out_path.display());
     let _ = std::fs::remove_file(&out_path);
 
-    println!("\nDone! The program compiles two secret inputs added together.");
-    println!("In a real deployment, execute_local() runs the full MPC protocol");
-    println!("so no party ever sees the individual secret values.");
+    // --- Run full MPC protocol on localhost ---
+    println!("\n=== Running full MPC protocol on localhost ===");
+    let results = Stoffel::compile(source)?
+        .parties(5)
+        .threshold(1)
+        .execute_local()
+        .await?;
+    println!("MPC result: {:?}", results);
+    // Expected: 42 + 58 = 100
+
     Ok(())
 }

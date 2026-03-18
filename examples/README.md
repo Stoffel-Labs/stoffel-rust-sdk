@@ -5,7 +5,6 @@ A learning path from "hello world" to "deploy to production". Each example build
 ## Prerequisites
 
 ```bash
-git submodule update --init --recursive
 cargo build
 ```
 

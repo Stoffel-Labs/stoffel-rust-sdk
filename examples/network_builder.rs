@@ -2,13 +2,14 @@
 //!
 //! Uses StoffelNetwork::builder() for fine-grained control over the MPC
 //! network configuration. Shows the MPC-safe pattern: branch on public
-//! values, modify secret values.
+//! values, modify secret values. Runs the full MPC protocol on localhost.
 //!
 //! Run: cargo run --example network_builder
 
 use stoffel_rust_sdk::prelude::*;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let source = include_str!("network_builder/salary.stfl");
 
     // --- Explicit compilation step ---
@@ -43,21 +44,23 @@ fn main() -> Result<()> {
 
     println!("Loaded network with {} bytes of bytecode", network2.bytecode().len());
 
-    // --- Show with_inputs ---
-    println!("\n=== Network with inputs ===");
-    let _network3 = StoffelNetwork::builder()
-        .program(bytecode)
+    // --- Run full MPC on localhost via StoffelNetwork ---
+    println!("\n=== Running full MPC on localhost ===");
+    let results = StoffelNetwork::builder()
+        .program(bytecode.clone())
         .parties(5)
         .threshold(1)
+        .with_preprocessing(2000, 1000)
         .build()?
-        .with_inputs(&[("salary", 5000i64), ("years", 8i64)]);
-
-    println!("Inputs configured for network execution");
+        .execute_local()
+        .await?;
+    println!("MPC result: {:?}", results);
+    // Expected: 5000 + 1000 (senior) + 500 (top performer) = 6500
 
     println!("\nStoffelNetwork::builder() gives you fine-grained control:");
     println!("  - Custom preprocessing (triples, random shares)");
     println!("  - Load from source or pre-compiled bytecode");
-    println!("  - Named inputs for the computation");
+    println!("  - Full MPC execution on localhost with execute_local()");
     println!("  - .scaffold() to generate Docker deployment (see deploy_scaffold example)");
     Ok(())
 }

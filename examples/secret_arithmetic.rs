@@ -2,13 +2,15 @@
 //!
 //! Multiplication on secret types triggers MPC protocol rounds
 //! (Beaver triples), unlike addition which is a local share operation.
-//! This example shows compilation with different MPC configurations.
+//! This example shows compilation with different MPC configurations
+//! and runs the full MPC protocol.
 //!
 //! Run: cargo run --example secret_arithmetic
 
 use stoffel_rust_sdk::prelude::*;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let source = include_str!("secret_arithmetic/secret_mul.stfl");
 
     // --- Compile and inspect MPC config ---
@@ -61,7 +63,15 @@ fn main() -> Result<()> {
     println!("Source compiled: {} bytes", runtime.program().bytecode().len());
     println!("Pre-compiled:   {} bytes", include_bytes!("secret_arithmetic/secret_mul.stfb").len());
 
-    println!("\nMultiplication on secrets uses Beaver triples for secure computation.");
-    println!("Addition on secrets is free (local share operation).");
+    // --- Execute with full MPC (secret multiplication uses Beaver triples) ---
+    println!("\n=== Executing with full MPC (secret multiplication) ===");
+    let results = Stoffel::compile(source)?
+        .parties(5)
+        .threshold(1)
+        .execute_local()
+        .await?;
+    println!("MPC result: {:?}", results);
+    // Expected: 150 * 4 = 600, tax = 60, total = 660
+
     Ok(())
 }

@@ -1,19 +1,38 @@
 //! Example 4: Deploy a Private Voting System
 //!
-//! Compiles a voting program and scaffolds production deployment artifacts
+//! Compiles a voting program, runs it with injected client votes via the
+//! full MPC protocol, then scaffolds production deployment artifacts
 //! (Docker configs, server binaries, coordinator setup).
 //!
 //! Run: cargo run --example deploy_scaffold
 
 use stoffel_rust_sdk::prelude::*;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let source = include_str!("deploy_scaffold/voting.stfl");
 
     // --- Compile the voting program ---
     println!("=== Compiling voting program ===");
     let bytecode = Compiler::new().compile_source(source)?;
     println!("Compiled to {} bytes", bytecode.len());
+
+    // --- Run voting with injected client inputs ---
+    println!("\n=== Running voting with injected client inputs ===");
+    let results = StoffelNetwork::builder()
+        .program(bytecode.clone())
+        .parties(5)
+        .threshold(1)
+        .build()?
+        .with_client_inputs(vec![
+            (0, vec![1]),  // Client 0 votes yes
+            (1, vec![0]),  // Client 1 votes no
+            (2, vec![1]),  // Client 2 votes yes
+        ])
+        .execute_local()
+        .await?;
+    println!("Vote tally: {:?}", results);
+    // Expected: 1 + 0 + 1 = 2
 
     // --- Build network and scaffold ---
     let output_dir = std::env::temp_dir().join("stoffel_voting_deploy");
