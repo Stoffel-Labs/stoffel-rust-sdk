@@ -231,77 +231,6 @@ pub fn unwrap_from_transport(data: &[u8]) -> Result<MPCaaSMessage> {
     Ok(msg)
 }
 
-/// Message buffer for handling partial reads
-///
-/// QUIC may deliver data in chunks, so we need to buffer until
-/// we have a complete message.
-#[derive(Default)]
-pub struct MessageBuffer {
-    buffer: Vec<u8>,
-}
-
-impl MessageBuffer {
-    /// Create a new empty message buffer
-    pub fn new() -> Self {
-        Self { buffer: Vec::new() }
-    }
-
-    /// Append data to the buffer
-    pub fn append(&mut self, data: &[u8]) {
-        self.buffer.extend_from_slice(data);
-    }
-
-    /// Try to extract a complete message from the buffer
-    ///
-    /// Returns `Some(message)` if a complete message is available,
-    /// `None` if more data is needed.
-    pub fn try_parse(&mut self) -> Result<Option<MPCaaSMessage>> {
-        if self.buffer.len() < 9 {
-            return Ok(None);
-        }
-
-        // Check if we have enough for the full message
-        if &self.buffer[0..4] != &MPCAAS_MAGIC {
-            // Clear buffer on protocol error
-            self.buffer.clear();
-            return Err(Error::Network("Invalid MPCaaS magic bytes".to_string()));
-        }
-
-        let length = u32::from_be_bytes([
-            self.buffer[5],
-            self.buffer[6],
-            self.buffer[7],
-            self.buffer[8],
-        ]) as usize;
-
-        let total_size = 9 + length;
-        if self.buffer.len() < total_size {
-            return Ok(None);
-        }
-
-        // Parse and consume the message
-        let (msg, consumed) = deserialize_message(&self.buffer)?;
-        self.buffer.drain(0..consumed);
-
-        Ok(Some(msg))
-    }
-
-    /// Clear the buffer
-    pub fn clear(&mut self) {
-        self.buffer.clear();
-    }
-
-    /// Check if buffer is empty
-    pub fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
-    }
-
-    /// Get current buffer size
-    pub fn len(&self) -> usize {
-        self.buffer.len()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,25 +299,6 @@ mod tests {
             }
             _ => panic!("Wrong message type"),
         }
-    }
-
-    #[test]
-    fn test_message_buffer() {
-        let mut buffer = MessageBuffer::new();
-
-        let msg = MPCaaSMessage::Ping;
-        let data = serialize_message(&msg).unwrap();
-
-        // Send in chunks
-        buffer.append(&data[0..5]);
-        assert!(buffer.try_parse().unwrap().is_none());
-
-        buffer.append(&data[5..]);
-        let parsed = buffer.try_parse().unwrap();
-
-        assert!(parsed.is_some());
-        matches!(parsed.unwrap(), MPCaaSMessage::Ping);
-        assert!(buffer.is_empty());
     }
 
     #[test]
