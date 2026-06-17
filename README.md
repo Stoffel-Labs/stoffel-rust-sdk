@@ -2,6 +2,8 @@
 
 A friendly, high-level Rust SDK for the Stoffel ecosystem, providing easy access to Stoffel-Lang compilation, StoffelVM execution, and Multi-Party Computation (MPC) protocols.
 
+**Go to the [stoffel monorepo](https://github.com/Stoffel-Labs/stoffel) which contains the latest stoffel-rust-sdk**
+
 ## Overview
 
 The Stoffel Rust SDK brings together three core components:
