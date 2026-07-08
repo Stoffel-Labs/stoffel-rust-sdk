@@ -5,7 +5,7 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use stoffel_rust_sdk::mpc_local::LocalMPCNetwork;
 //!
 //! #[tokio::main]
@@ -88,6 +88,10 @@ impl LocalMPCNetwork {
                 n_triples,
                 n_random,
                 instance_id,
+                0,  // n_prandbit
+                0,  // n_prandint
+                0,  // l
+                0,  // k
             );
 
             let node = <HoneyBadgerMPCNode<Fr, RBCImpl> as MPCProtocol<

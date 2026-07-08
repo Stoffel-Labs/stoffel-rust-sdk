@@ -8,21 +8,22 @@ license = "Apache-2.0"
 repository = "https://github.com/Stoffel-Labs/stoffel-rust-sdk"
 
 [dependencies]
-# Core Stoffel dependencies (using git submodules for version pinning)
-stoffellang = { path = "external/stoffel-lang" }
-stoffel-vm = { path = "external/stoffel-vm/crates/stoffel-vm" }
-stoffel-vm-types = { path = "external/stoffel-vm/crates/stoffel-vm-types" }
-stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
-stoffelmpc-network = { path = "external/mpc-protocols/network" }
+# Core Stoffel dependencies (pinned to specific commits)
+stoffellang = { git = "https://github.com/Stoffel-Labs/Stoffel-Lang.git", rev = "1c0bdde58b1ca3e995b28f223fcefc484f1a87fb" }
+stoffel-vm = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "aed1048" }
+stoffel-vm-types = { git = "https://github.com/Stoffel-Labs/StoffelVM.git", rev = "aed1048" }
+stoffelmpc-mpc = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "82a60d1e2c3382013214d9165a906b781490bcde" }
+stoffelmpc-network = { git = "https://github.com/Stoffel-Labs/mpc-protocols.git", rev = "82a60d1e2c3382013214d9165a906b781490bcde" }
 
-# Modern QUIC-based networking
-stoffelnet = { path = "external/stoffel-networking" }
+# Modern QUIC-based networking (pinned to match mpc-protocols)
+stoffelnet = { git = "https://github.com/Stoffel-Labs/stoffel-networking.git", rev = "bac0841120d7e99f6be867a00dd3c38a6fc5f126" }
 
 # Utility dependencies
 anyhow = "1.0"
 thiserror = "1.0"
 ordered-float = "4.0"
 serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
 toml = "0.8"
 
 # MPC dependencies
@@ -37,7 +38,7 @@ tokio = { version = "1.0", features = ["full"] }
 futures = { version = "0.3" }
 
 # Cryptography for QUIC
-rustls = { version = "0.23" }
+rustls = { version = "0.23", features = ["ring"] }
 
 # Logging
 tracing = { version = "0.1" }
@@ -49,9 +50,6 @@ tokio = { version = "1.0", features = ["full"] }
 [features]
 default = []
 
-# Ensure all dependencies use the same local version of stoffelnet and mpc-protocols
-[patch."https://github.com/Stoffel-Labs/stoffel-networking.git"]
-stoffelnet = { path = "external/stoffel-networking" }
-
-[patch."https://github.com/Stoffel-Labs/mpc-protocols.git"]
-stoffelmpc-mpc = { path = "external/mpc-protocols/mpc" }
+[[example]]
+name = "honeybadger_mpc_demo"
+path = "examples/honeybadger_mpc_demo.rs"

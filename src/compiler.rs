@@ -174,3 +174,117 @@ pub struct CompilationOutput {
     /// Intermediate representation (if requested)
     pub ir: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that ClientStore.take_share() compiles correctly
+    #[test]
+    fn test_compile_clientstore_take_share() {
+        let source = r#"
+main main() -> secret int64:
+  var a: secret int64 = ClientStore.take_share(0, 0)
+  return a
+        "#;
+
+        let compiler = Compiler::new();
+        let result = compiler.compile_source(source);
+
+        assert!(result.is_ok(), "ClientStore.take_share() should compile: {:?}", result.err());
+
+        let bytecode = result.unwrap();
+        assert!(!bytecode.is_empty(), "Bytecode should not be empty");
+    }
+
+    /// Test compiling a program with multiple ClientStore inputs
+    #[test]
+    fn test_compile_clientstore_multiple_inputs() {
+        let source = r#"
+main main() -> secret int64:
+  var a: secret int64 = ClientStore.take_share(0, 0)
+  var b: secret int64 = ClientStore.take_share(0, 1)
+  var c: secret int64 = ClientStore.take_share(0, 2)
+  return a + b + c
+        "#;
+
+        let compiler = Compiler::new();
+        let result = compiler.compile_source(source);
+
+        assert!(result.is_ok(), "Multiple ClientStore inputs should compile: {:?}", result.err());
+    }
+
+    /// Test compiling secret integer addition
+    #[test]
+    fn test_compile_secret_addition() {
+        let source = r#"
+main main() -> secret int64:
+  var a: secret int64 = ClientStore.take_share(0, 0)
+  var b: secret int64 = ClientStore.take_share(0, 1)
+  return a + b
+        "#;
+
+        let compiler = Compiler::new();
+        let result = compiler.compile_source(source);
+
+        assert!(result.is_ok(), "Secret addition should compile: {:?}", result.err());
+    }
+
+    /// Test that a simple non-MPC program compiles
+    #[test]
+    fn test_compile_simple_program() {
+        let source = "main main() -> int64:\n  return 42\n";
+
+        let compiler = Compiler::new();
+        let result = compiler.compile_source(source);
+
+        assert!(result.is_ok(), "Simple program should compile: {:?}", result.err());
+    }
+
+    /// Test compiler optimization levels
+    #[test]
+    fn test_compile_with_optimization() {
+        let source = "main main() -> int64:\n  return 42\n";
+
+        let compiler = Compiler::new()
+            .optimization_level(OptimizationLevel::O2);
+
+        let result = compiler.compile_source(source);
+        assert!(result.is_ok(), "Optimized compilation should succeed");
+    }
+
+    /// Test compiler default settings
+    #[test]
+    fn test_compiler_default() {
+        let compiler = Compiler::default();
+        let source = "main main() -> int64:\n  return 1\n";
+
+        let result = compiler.compile_source(source);
+        assert!(result.is_ok(), "Default compiler should work");
+    }
+
+    /// Test that invalid syntax produces a CompilationError
+    #[test]
+    fn test_compile_invalid_syntax() {
+        let source = "this is not valid stoffel code!!!";
+
+        let compiler = Compiler::new();
+        let result = compiler.compile_source(source);
+
+        assert!(result.is_err(), "Invalid syntax should produce an error");
+        match result.err() {
+            Some(Error::CompilationError(_)) => { /* expected */ }
+            other => panic!("Expected CompilationError, got {:?}", other),
+        }
+    }
+
+    /// Test enable optimization flag
+    #[test]
+    fn test_compiler_optimize_flag() {
+        let compiler = Compiler::new().optimize(true);
+        let source = "main main() -> int64:\n  return 42\n";
+
+        let result = compiler.compile_source(source);
+        assert!(result.is_ok(), "Optimize flag should not break compilation");
+    }
+}

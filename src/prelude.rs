@@ -5,16 +5,18 @@
 //! ```rust,no_run
 //! use stoffel_rust_sdk::prelude::*;
 //!
-//! # fn main() -> Result<()> {
-//! // Simple API - everything you need for basic usage
-//! let runtime = Stoffel::compile("main main() -> int64:\n  return 42")?
-//!     .parties(5)
-//!     .threshold(1)
-//!     .build()?;
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // === Client Side (App Developers) ===
+//!     let client = StoffelClient::builder()
+//!         .with_servers(&["server1:19200", "server2:19200", "server3:19200"])
+//!         .connect()
+//!         .await?;
 //!
-//! let client = runtime.client(100).with_inputs(vec![10, 20]).build()?;
-//! # Ok(())
-//! # }
+//!     let result = client.run(&[42, 100]).await?;
+//!     println!("Result: {:?}", result);
+//!     Ok(())
+//! }
 //! ```
 //!
 //! For advanced usage (raw VM access, protocol internals, etc.), use:
@@ -37,11 +39,6 @@ pub use crate::compiler::{Compiler, OptimizationLevel};
 pub use crate::vm::{VM, Value, LoadedProgram};
 pub use crate::program::Program;
 
-// MPC participants (for custom setups)
-pub use crate::client::{MPCClient, MPCConfig, ProtocolConfig};
-pub use crate::server::MPCServer;
-pub use crate::session::MPCNode;
-
 // Configuration
 pub use crate::network_config::{NetworkConfig, NetworkSettings, MPCSettings, NetworkConfigBuilder};
 pub use crate::secret_sharing::{SecretSharing, SecretShare};
@@ -49,3 +46,16 @@ pub use crate::secret_sharing::{SecretSharing, SecretShare};
 // Network helpers module is available but types must be imported directly
 // from stoffel_vm for production deployments. See network_helpers module docs.
 pub use crate::network_helpers;
+
+// MPCaaS API (Primary) - for production MPC deployments
+pub use crate::mpcaas::{
+    // Client API (for app developers)
+    StoffelClient, StoffelClientBuilder, ClientState,
+    // Server API (for infrastructure operators)
+    StoffelServer, StoffelServerBuilder, ServerState,
+    // Async computation handle
+    ComputationHandle,
+    // Peer and client management (for server implementations)
+    PeerManager, PeerState, PeerInfo, DiscoveryMode, PartyId,
+    ClientHandler, ClientId,
+};

@@ -51,7 +51,7 @@ impl ShareManager {
         use stoffelmpc_mpc::common::SecretSharingScheme;
         use stoffelmpc_mpc::honeybadger::robust_interpolate::robust_interpolate::RobustShare;
 
-        let store = stoffel_vm::net::client_store::get_global_store();
+        let store = crate::network_helpers::get_global_store();
         let mut rng = ark_std::test_rng();
 
         for &value in values {
@@ -73,25 +73,25 @@ impl ShareManager {
 
     /// Check if shares exist for a client
     pub fn has_shares(client_id: u64) -> bool {
-        let store = stoffel_vm::net::client_store::get_global_store();
+        let store = crate::network_helpers::get_global_store();
         store.has_client_input(client_id as usize)
     }
 
     /// Get the number of shares for a client
     pub fn share_count(client_id: u64) -> usize {
-        let store = stoffel_vm::net::client_store::get_global_store();
+        let store = crate::network_helpers::get_global_store();
         store.get_client_input_count(client_id as usize)
     }
 
     /// Clear shares for a client
     pub fn clear_shares(client_id: u64) -> bool {
-        let store = stoffel_vm::net::client_store::get_global_store();
+        let store = crate::network_helpers::get_global_store();
         store.remove_client_input(client_id as usize).is_some()
     }
 
     /// List all clients with shares
     pub fn list_clients() -> Vec<u64> {
-        let store = stoffel_vm::net::client_store::get_global_store();
+        let store = crate::network_helpers::get_global_store();
         store.list_clients().into_iter().map(|id| id as u64).collect()
     }
 }

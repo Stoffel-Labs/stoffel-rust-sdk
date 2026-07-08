@@ -4,9 +4,6 @@ This directory contains technical documentation and design notes for the Stoffel
 
 ## Documentation Files
 
-### Development Notes
-- **[client-server-connection.md](client-server-connection.md)** - Technical notes on client-server MPC architecture and connection patterns
-
 ### Repository Documentation
 - **[../README.md](../README.md)** - Main SDK documentation with quick start guide and examples
 - **[../CLAUDE.md](../CLAUDE.md)** - Development guide for Claude Code AI assistant
@@ -37,7 +34,7 @@ The SDK implements message processors that route MPC protocol messages between s
 - **Message Routing**: `spawn_message_processor()` creates background tasks for protocol message handling
 - **State Sharing**: Uses `Arc<Mutex<>>` internally for shared preprocessing material
 
-See `examples/complete_mpc_workflow.rs` for the reference implementation.
+See `examples/honeybadger_mpc_demo.rs` for the reference implementation.
 
 ### MPC Workflow
 1. Compile Stoffel program with MPC configuration

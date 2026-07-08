@@ -78,9 +78,9 @@ cargo doc --open
 
 The SDK is organized around three main integration points:
 
-1. **Stoffel-Lang Integration**: Compiler and language functionality (✅ Integrated)
-2. **StoffelVM Integration**: VM runtime and execution environment (✅ Integrated)
-3. **MPC Protocols Integration**: Multi-party computation primitives (✅ API complete - HoneyBadger Byzantine fault-tolerant protocol)
+1. **Stoffel-Lang Integration**: Compiler and language functionality (Integrated)
+2. **StoffelVM Integration**: VM runtime and execution environment (Integrated)
+3. **MPC Protocols Integration**: Multi-party computation primitives (API complete - HoneyBadger Byzantine fault-tolerant protocol)
 
 ### Integration Status
 
@@ -95,12 +95,6 @@ To initialize submodules:
 git submodule update --init --recursive
 ```
 
-#### Known Issues
-- **MPC Network Integration**: Full MPC network integration requires setting up stoffelnet networking layer. The API wrappers are complete but need network connectivity.
-
-#### Resolved Issues
-- **StoffelVM Build Errors** (Closed STO-231): Fixed by switching to the `runner` branch instead of `main`. Added stub `client_store.rs` module for client-server MPC scenarios.
-
 ### Design Goals
 
 - **Progressive Disclosure**: Simple by default, powerful when needed
@@ -108,97 +102,89 @@ git submodule update --init --recursive
 - **Application-Specific SDKs**: Support building specialized SDKs on top of the core functionality
 - **Rust-Native**: Idiomatic Rust patterns and best practices
 
-### API Architecture: Progressive Disclosure
+### API Architecture: MPCaaS (MPC as a Service)
 
-The SDK follows a **three-level architecture** to balance simplicity and power:
+The SDK provides a production-ready **client-server architecture** where:
+- **Clients** (app developers): Connect to an MPC network, provide inputs, receive outputs
+- **Servers** (infrastructure operators): Form the MPC network, perform computations
 
-#### Level 1: Simple API (`src/prelude.rs`)
-**For most users - building MPC applications easily**
+#### Client API (For App Developers)
 
 ```rust
 use stoffel_rust_sdk::prelude::*;
 
-// Compile with MPC configuration
-let runtime = Stoffel::compile(source)?
-    .parties(5)
-    .threshold(1)
-    .build()?;
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Connect to MPC network
+    let client = StoffelClient::builder()
+        .with_servers(&["server1:19200", "server2:19200", "server3:19200"])
+        .connect()
+        .await?;
 
-// Create participants
-let client = runtime.client(100).with_inputs(vec![10, 20]).build()?;
-let server = runtime.server(0).build()?;
+    // Submit computation and get result
+    let result = client.run(&[42, 100]).await?;
+    println!("Result: {:?}", result);
+    Ok(())
+}
 ```
 
-**Re-exports:**
+#### Server API (For Infrastructure Operators)
+
+```rust
+use stoffel_rust_sdk::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Compile the program
+    let program = Stoffel::compile("main main() -> secret int64:\n  ...")?
+        .build()?;
+
+    // Create MPC server
+    let server = Stoffel::server(0)
+        .bind("0.0.0.0:19200")
+        .with_peers(&[(1, "server2:19200"), (2, "server3:19200")])
+        .with_program(program.program().clone())
+        .with_preprocessing(10, 20)
+        .build()?;
+
+    server.start().await?;
+    server.run_forever().await
+}
+```
+
+**Re-exports (from `prelude`):**
 - `Stoffel`, `StoffelRuntime` - Main API
-- `MPCClient`, `MPCServer`, `MPCNode` - Participants
+- `StoffelClient`, `StoffelClientBuilder`, `ClientState` - Client API
+- `StoffelServer`, `StoffelServerBuilder`, `ServerState` - Server API
+- `ComputationHandle` - Async computation tracking
 - `Program`, `VM`, `Compiler` - Core types
 - `Error`, `Result` - Error handling
-
-**Example:** `examples/simple_mpc.rs`
-
-#### Level 2: Advanced Abstractions (`src/advanced.rs`)
-**For custom MPC applications requiring fine-grained control**
-
-```rust
-use stoffel_rust_sdk::advanced::*;
-
-// Store and manage secret shares
-ShareManager::store_shares(100, &[10, 20], 5, 1)?;
-
-// Build network configuration
-let config = NetworkBuilder::new(5, 1)
-    .base_port(19200)
-    .instance_id(42)
-    .build();
-```
-
-**Provides:**
-- `ShareManager` - Clean abstraction over ClientInputStore
-- `NetworkBuilder` - Clean abstraction for network configuration
-- `NetworkConfig` - Configuration validation
-
-**IMPORTANT:** No raw internal types exposed. All advanced functionality uses proper abstractions.
-
-**Example:** `examples/advanced_shares.rs`
-
-#### Level 3: Production Infrastructure (`src/network_helpers.rs`)
-**For production deployments with real networking** (requires `mpc-local` feature)
-
-```rust
-use stoffel_rust_sdk::prelude::*;
-
-// One-call network setup
-let (servers, receivers) = setup_honeybadger_quic_network::<Fr>(
-    5, 1, 3, 8, 42, 19200,
-    HoneyBadgerQuicConfig::default(),
-).await?;
-```
-
-**Provides:**
-- `setup_honeybadger_quic_network()` - Complete network in one call
-- `HoneyBadgerQuicServer`, `HoneyBadgerQuicClient` - Production wrappers
-- QUIC listeners, connections, message handlers
-
-**Example:** `examples/quick_start_local_network_real.rs`
 
 ### Module Structure
 
 ```
 src/
 ├── lib.rs              # Stoffel builder - main entry point
-├── prelude.rs          # ⭐ Simple API (Level 1)
-├── advanced.rs         # ⭐⭐ Advanced abstractions (Level 2)
-├── network_helpers.rs  # ⭐⭐⭐ Production infrastructure (Level 3)
+├── prelude.rs          # Simple API exports
+├── advanced.rs         # Advanced abstractions
+├── network_helpers.rs  # Production infrastructure
 │
-├── program.rs          # Compiled program with MPC config
+├── mpcaas/             # MPCaaS API (Primary)
+│   ├── mod.rs          # Module exports
+│   ├── client.rs       # StoffelClient implementation
+│   ├── server.rs       # StoffelServer implementation
+│   ├── protocol.rs     # MPCaaS wire protocol
+│   ├── client_handler.rs # Server-side client handling
+│   ├── peer_manager.rs # Peer connection management
+│   └── handle.rs       # ComputationHandle for async
+│
+├── program.rs          # Compiled program
 ├── compiler.rs         # Stoffel-Lang compiler wrapper
 ├── vm.rs               # StoffelVM execution wrapper
-├── client.rs           # MPCClient implementation
-├── server.rs           # MPCServer implementation
-├── session.rs          # MPCNode implementation
 ├── network_config.rs   # Network configuration types
 ├── secret_sharing.rs   # Secret sharing utilities
+├── mpc_network.rs      # MPC network execution
+├── mpc_local.rs        # Local MPC testing
 └── error.rs            # Unified error types
 ```
 
@@ -216,26 +202,18 @@ The SDK implements an **MPC as a Service** architecture using the **HoneyBadger 
 
 #### Components
 
-1. **MPCClient** (`src/client.rs`)
-   - For clients sending private inputs to MPC network
-   - Wraps `HoneyBadgerMPCClient` from mpc-protocols
-   - Handles input secret-sharing and output reconstruction
+1. **StoffelClient** (`src/mpcaas/client.rs`)
+   - For app developers connecting to an existing MPC network
+   - Simple API: connect, submit inputs, receive outputs
+   - Handles QUIC networking automatically
    - Does not participate in computation
 
-2. **MPCServer** (`src/server.rs`)
-   - For MPC network servers performing computation
-   - Wraps `HoneyBadgerMPCNode` from mpc-protocols
-   - Manages preprocessing material (beaver triples, random shares)
+2. **StoffelServer** (`src/mpcaas/server.rs`)
+   - For infrastructure operators running MPC compute nodes
+   - Manages peer connections, preprocessing, and client handling
    - Performs secure multiparty computation using HoneyBadger
    - Cannot learn individual client inputs
    - Byzantine fault-tolerant
-
-3. **MPCNode** (`src/session.rs`)
-   - For full participants in collaborative MPC scenarios
-   - Combines client and server functionality
-   - Provides inputs AND participates in computation
-   - Also uses HoneyBadger protocol
-   - Should be used explicitly when this behavior is needed
 
 #### Design Rationale
 
@@ -243,18 +221,17 @@ The SDK implements an **MPC as a Service** architecture using the **HoneyBadger 
 - **Scalability**: Many clients can use a fixed MPC network of servers
 - **Security**: Clear boundaries between data providers and compute servers
 - **Byzantine fault tolerance**: HoneyBadger handles malicious parties (not just crash failures)
-- **Automatic validation**: SDK validates n >= 3t + 1 constraint at build time
-- **Flexibility**: Full participant mode (MPCNode) available for collaborative scenarios
+- **Automatic validation**: SDK validates n >= 4t + 1 constraint at build time
 
 #### Configuration Requirements
 
 When configuring MPC networks with HoneyBadger:
-- Minimum: 4 parties with threshold 1 (4 >= 3*1 + 1)
-- Common: 5 parties with threshold 1 (5 >= 3*1 + 1) - used in examples
-- Higher tolerance: 7 parties with threshold 2 (7 >= 3*2 + 1)
-- Always ensure: n >= 3t + 1 for Byzantine fault tolerance
+- **TripleGen constraint**: n >= 4t + 1 (stricter than basic Byzantine n >= 3t + 1)
+- Minimum: 5 parties with threshold 1 (5 >= 4*1 + 1)
+- Higher tolerance: 9 parties with threshold 2 (9 >= 4*2 + 1)
+- The TripleGen preprocessing uses degree-2t shares requiring more parties for robust interpolation
 
-As the architecture evolves, document key patterns for:
-- How the three components interact
-- Module boundaries and public API surface
-- Integration patterns for application-specific SDKs
+### Examples
+
+Available examples in `examples/`:
+- `honeybadger_mpc_demo.rs` - Full E2E MPC demonstration (includes server and client API usage)
